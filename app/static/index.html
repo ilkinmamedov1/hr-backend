@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="az">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1220">
+  <title>Azərbaycan HR &amp; Payroll ERP</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f9d8f'/%3E%3Ctext x='32' y='42' font-family='Arial,sans-serif' font-size='26' font-weight='700' fill='white' text-anchor='middle'%3EHR%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div id="loading-screen" class="boot-screen">
+    <div class="boot-logo">HR</div>
+    <div class="boot-spinner"></div>
+    <p>Sistem yüklənir...</p>
+  </div>
+
+  <section id="login-screen" class="login-screen hidden">
+    <div class="login-aside">
+      <div class="login-brand">
+        <div class="brand-mark">HR</div>
+        <div>
+          <strong>Azərbaycan HR &amp; Payroll</strong>
+          <span>ERP Platforması</span>
+        </div>
+      </div>
+      <div class="login-hero">
+        <span class="eyebrow">M01–M14 · Tam inteqrasiya</span>
+        <h1>İnsan resursları və əməkhaqqı prosesləri bir platformada.</h1>
+        <p>Əmək mücəlləsi, vergi və DSMF qaydalarına uyğun kadr uçotu, davamiyyət, məzuniyyət, əməkhaqqı və uyğunluq hesabatları.</p>
+      </div>
+      <div class="login-features">
+        <div class="login-feature">
+          <span class="feature-icon">01</span>
+          <div><strong>Kadr və ştat</strong><small>İşçi kartı, müqavilə, əmrlər</small></div>
+        </div>
+        <div class="login-feature">
+          <span class="feature-icon">02</span>
+          <div><strong>Payroll &amp; vergi</strong><small>Avtomatik hesablama və bəyannamə</small></div>
+        </div>
+        <div class="login-feature">
+          <span class="feature-icon">03</span>
+          <div><strong>ESS self-service</strong><small>İşçi üçün şəxsi kabinet</small></div>
+        </div>
+      </div>
+      <div class="login-foot">© 2026 · Azərbaycan HR &amp; Payroll ERP</div>
+    </div>
+
+    <div class="login-main">
+      <form id="login-form" class="login-card" autocomplete="on">
+        <div class="login-card-head">
+          <span class="eyebrow dark">Daxil ol</span>
+          <h2>Hesabınıza giriş edin</h2>
+          <p>Korporativ e-poçt və şifrənizlə davam edin.</p>
+        </div>
+        <label class="field">
+          <span>E-poçt</span>
+          <input id="login-email" name="username" type="email" placeholder="admin@hr.local" required autocomplete="username">
+        </label>
+        <label class="field">
+          <span>Şifrə</span>
+          <input id="login-password" name="password" type="password" placeholder="••••••••" required autocomplete="current-password">
+        </label>
+        <div id="login-error" class="form-error hidden"></div>
+        <button id="login-submit" class="btn primary w-full" type="submit">Daxil ol</button>
+
+        <div class="demo-box">
+          <div class="demo-box-title">Demo hesablar</div>
+          <div class="demo-chips">
+            <button type="button" class="demo-chip" data-demo="admin@hr.local|Admin123!">Superadmin</button>
+            <button type="button" class="demo-chip" data-demo="hr@hr.local|Hr12345!">HR direktoru</button>
+            <button type="button" class="demo-chip" data-demo="accountant@hr.local|Acc12345!">Mühasib</button>
+            <button type="button" class="demo-chip" data-demo="manager@hr.local|Mgr12345!">Departament rəhbəri</button>
+            <button type="button" class="demo-chip" data-demo="employee@hr.local|Emp12345!">İşçi</button>
+          </div>
+        </div>
+        <div class="login-links">
+          <a href="/docs" target="_blank" rel="noopener" data-docs-link>API sənədləri</a>
+          <span>·</span>
+          <a href="/api" target="_blank" rel="noopener" data-docs-link>API məlumatı</a>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <div id="app-shell" class="app-shell hidden">
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-mark small">HR</div>
+        <div class="sidebar-brand-text">
+          <strong>HR &amp; Payroll</strong>
+          <span>ERP Platforması</span>
+        </div>
+      </div>
+      <nav id="sidebar-nav" class="sidebar-nav"></nav>
+      <div class="sidebar-footer">
+        <a href="/docs" target="_blank" rel="noopener" data-docs-link>API sənədləri</a>
+        <span>v1.0.0</span>
+      </div>
+    </aside>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <button id="menu-toggle" class="icon-btn menu-toggle" type="button" aria-label="Menyu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <div class="topbar-title">
+          <h1 id="page-title">İcmal</h1>
+          <p id="page-subtitle">HR &amp; Payroll idarəetmə paneli</p>
+        </div>
+        <div class="topbar-actions">
+          <span id="today-label" class="today-label"></span>
+          <div class="user-box">
+            <div id="user-avatar" class="avatar">A</div>
+            <div class="user-meta">
+              <strong id="user-name">İstifadəçi</strong>
+              <span id="user-role">Rol</span>
+            </div>
+          </div>
+          <button class="icon-btn" type="button" data-act="logout" title="Çıxış">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          </button>
+        </div>
+      </header>
+      <main id="view" class="view" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
