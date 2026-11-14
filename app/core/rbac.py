@@ -4,7 +4,8 @@ except ImportError:
     from enum import Enum
 
     class StrEnum(str, Enum):
-        pass
+        def __str__(self) -> str:
+            return str(self.value)
 
 
 class Role(StrEnum):
