@@ -93,6 +93,10 @@
           <span>ERP Platforması</span>
         </div>
       </div>
+      <div class="sidebar-search-box">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="search" id="sidebar-filter" placeholder="Menyuda axtar..." autocomplete="off">
+      </div>
       <nav id="sidebar-nav" class="sidebar-nav"></nav>
       <div class="sidebar-footer">
         <a href="/docs" target="_blank" rel="noopener" data-docs-link>API sənədləri</a>
@@ -110,6 +114,14 @@
           <p id="page-subtitle">HR &amp; Payroll idarəetmə paneli</p>
         </div>
         <div class="topbar-actions">
+          <div class="topbar-quick-actions">
+            <button class="btn sm primary quick-btn" type="button" data-act="quick-new-order" title="Yeni Kadr Əmri Tərtib Et">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Yeni Əmr</span>
+            </button>
+            <button class="btn sm ghost quick-btn" type="button" data-act="quick-new-employee" title="Yeni İşçi Əlavə Et">
+              <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg><span>Yeni İşçi</span>
+            </button>
+          </div>
           <span id="today-label" class="today-label"></span>
           <div class="user-box">
             <div id="user-avatar" class="avatar">A</div>

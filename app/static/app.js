@@ -430,21 +430,163 @@
 
   function buildSidebar() {
     var nav = $('#sidebar-nav');
+    if (!nav) return;
     var html = '';
-    state.meta.modules.forEach(function (module) {
-      var entities = state.meta.entities.filter(function (entity) { return entity.module === module.code; });
-      if (state.user && state.user.role === 'EMPLOYEE') entities = [];
-      var screens = state.meta.screens.filter(function (screen) { return screen.module === module.code; });
-      if (!entities.length && !screens.length) return;
-      var open = state.activeGroup === module.code;
-      html += '<details class="nav-group"' + (open ? ' open' : '') + '><summary>' +
-        '<span class="nav-code">' + esc(module.code === 'OVERVIEW' ? 'İCM' : module.code) + '</span>' +
-        '<span>' + esc(module.title) + '</span><span class="chev">›</span></summary><div class="nav-items">';
-      screens.forEach(function (screen) { html += navLink('#/s/' + screen.key, screen.title, screen.icon); });
-      entities.forEach(function (entity) { html += navLink('#/entity/' + entity.key, entity.label, entity.icon); });
-      html += '</div></details>';
+
+    // If regular employee
+    if (state.user && state.user.role === 'EMPLOYEE') {
+      html += '<div class="nav-section-title">Şəxsi Kabinet</div><div class="nav-items">';
+      html += navLink('#/s/ess', 'Şəxsi kabinetim', 'user');
+      html += '<button type="button" class="nav-item nav-action-btn" data-act="ess-reference-pdf">' +
+        '<span class="nav-icon">' + icon('download') + '</span><span>İş yerindən arayış (PDF)</span></button>';
+      html += '<button type="button" class="nav-item nav-action-btn" data-act="ess-new-leave">' +
+        '<span class="nav-icon">' + icon('palmtree') + '</span><span>Məzuniyyət sorğusu</span></button>';
+      html += '</div>';
+      nav.innerHTML = html;
+      bindSidebarFilter();
+      return;
+    }
+
+    var sections = [
+      {
+        title: 'Əsas Panel',
+        items: [
+          { type: 'screen', key: 'dashboard', label: 'İcmal', icon: 'dashboard' },
+          { type: 'screen', key: 'approvals', label: 'Təsdiq mərkəzi', icon: 'check' },
+          { type: 'screen', key: 'structure', label: 'Təşkilat strukturu', icon: 'tree' }
+        ]
+      },
+      {
+        title: 'Kadr və Ştat',
+        items: [
+          { type: 'entity', key: 'employees', label: 'İşçilər', icon: 'users' },
+          { type: 'entity', key: 'hr-orders', label: 'Kadr əmrləri', icon: 'stamp' },
+          { type: 'entity', key: 'contracts', label: 'Əmək müqavilələri', icon: 'contract' },
+          { type: 'entity', key: 'staffing', label: 'Ştat cədvəli', icon: 'grid' },
+          { type: 'screen', key: 'reports', label: 'Müddət xəbərdarlıqları', icon: 'alert' }
+        ]
+      },
+      {
+        title: 'İş Vaxtı və Məzuniyyət',
+        items: [
+          { type: 'screen', key: 'timesheets', label: 'Tabel (T-13)', icon: 'clock' },
+          { type: 'screen', key: 'leave-requests', label: 'Məzuniyyət sorğuları', icon: 'palmtree' },
+          { type: 'screen', key: 'sick-leaves', label: 'Xəstəlik vərəqələri', icon: 'health' },
+          { type: 'screen', key: 'production-calendar', label: 'İstehsalat təqvimi', icon: 'calendar-grid' }
+        ]
+      },
+      {
+        title: 'Əməkhaqqı və Dövlət',
+        items: [
+          { type: 'screen', key: 'payroll-runs', label: 'Əməkhaqqı hesablaması', icon: 'wallet' },
+          { type: 'screen', key: 'compliance', label: 'Dövlət hesabatları', icon: 'report' },
+          { type: 'entity', key: 'emas-sync-logs', label: 'ƏMAS logları', icon: 'sync' }
+        ]
+      },
+      {
+        title: 'İşə Qəbul və Ezamiyyət',
+        items: [
+          { type: 'screen', key: 'recruitment', label: 'İşə qəbul (Kanban)', icon: 'user-search' },
+          { type: 'screen', key: 'onboarding', label: 'Onboarding idarəsi', icon: 'checklist' },
+          { type: 'entity', key: 'trips', label: 'Ezamiyyətlər', icon: 'plane' },
+          { type: 'screen', key: 'mss', label: 'MSS · Komandam', icon: 'users' }
+        ]
+      },
+      {
+        title: 'Sistem və İnzibatçılıq',
+        items: [
+          { type: 'screen', key: 'ess', label: 'Şəxsi kabinet (ESS)', icon: 'user' },
+          { type: 'screen', key: 'users', label: 'İstifadəçilər', icon: 'shield' },
+          { type: 'screen', key: 'audit', label: 'Audit jurnalı', icon: 'list' }
+        ]
+      }
+    ];
+
+    var usedKeys = {};
+
+    sections.forEach(function (sec) {
+      var visibleItems = sec.items.filter(function (it) {
+        if (it.type === 'screen') {
+          return hasScreen(it.key);
+        } else {
+          return !!state.entityMap[it.key];
+        }
+      });
+      if (!visibleItems.length) return;
+      html += '<div class="nav-section-title">' + esc(sec.title) + '</div><div class="nav-items">';
+      visibleItems.forEach(function (it) {
+        usedKeys[it.key] = true;
+        var href = it.type === 'screen' ? '#/s/' + it.key : '#/entity/' + it.key;
+        html += navLink(href, it.label, it.icon);
+      });
+      html += '</div>';
     });
+
+    // Secondary / configuration entities
+    var otherEntities = (state.meta.entities || []).filter(function (ent) {
+      return !usedKeys[ent.key];
+    });
+
+    if (otherEntities.length && roleIn(['SUPERADMIN', 'HR_DIRECTOR', 'HR_SPECIALIST', 'ACCOUNTANT'])) {
+      var isCurrentInOther = location.hash.startsWith('#/entity/') && otherEntities.some(function (e) {
+        return location.hash === '#/entity/' + e.key;
+      });
+      html += '<details class="nav-group extra-tables-group"' + (isCurrentInOther ? ' open' : '') + '>' +
+        '<summary><span class="nav-icon">' + icon('grid') + '</span>' +
+        '<span>Bütün cədvəllər (Konfiqurasiya)</span><span class="chev">›</span></summary>' +
+        '<div class="nav-items">';
+      otherEntities.forEach(function (ent) {
+        html += navLink('#/entity/' + ent.key, ent.label, ent.icon);
+      });
+      html += '</div></details>';
+    }
+
     nav.innerHTML = html;
+    bindSidebarFilter();
+  }
+
+  function bindSidebarFilter() {
+    var input = $('#sidebar-filter');
+    if (!input) return;
+    input.oninput = function () {
+      var q = (this.value || '').toLowerCase().trim();
+      var nav = $('#sidebar-nav');
+      if (!nav) return;
+      var items = nav.querySelectorAll('.nav-item');
+      var titles = nav.querySelectorAll('.nav-section-title');
+      var extra = nav.querySelector('.extra-tables-group');
+
+      if (!q) {
+        items.forEach(function (el) { el.classList.remove('filter-hidden'); });
+        titles.forEach(function (el) { el.classList.remove('filter-hidden'); });
+        if (extra) {
+          extra.classList.remove('filter-hidden');
+          extra.removeAttribute('open');
+        }
+        return;
+      }
+
+      items.forEach(function (el) {
+        var text = el.textContent.toLowerCase();
+        var match = text.indexOf(q) >= 0;
+        el.classList.toggle('filter-hidden', !match);
+      });
+
+      var sections = nav.querySelectorAll('.nav-items');
+      sections.forEach(function (sec) {
+        var visibleCount = sec.querySelectorAll('.nav-item:not(.filter-hidden)').length;
+        var prev = sec.previousElementSibling;
+        if (prev && prev.classList.contains('nav-section-title')) {
+          prev.classList.toggle('filter-hidden', visibleCount === 0);
+        }
+      });
+
+      if (extra) {
+        var extraVisible = extra.querySelectorAll('.nav-item:not(.filter-hidden)').length > 0;
+        extra.classList.toggle('filter-hidden', !extraVisible);
+        if (extraVisible) extra.setAttribute('open', '');
+      }
+    };
   }
 
   function navLink(href, label, iconName) {
@@ -523,6 +665,10 @@
       $('#user-name').textContent = state.user.full_name || state.user.email || 'İstifadəçi';
       $('#user-role').textContent = humanize(state.user.role);
       $('#user-avatar').textContent = initials(state.user.full_name || state.user.email);
+      var topbarActions = $('.topbar-quick-actions');
+      if (topbarActions) {
+        topbarActions.classList.toggle('hidden', !isHrWriter());
+      }
     }
     $('#today-label').textContent = todayLabel();
     buildSidebar();
@@ -1309,18 +1455,20 @@
 
   function quickLinksHTML() {
     var items = [
+      { entity: 'employees', icon: 'users', label: 'İşçilər (Kadrlar)' },
+      { entity: 'hr-orders', icon: 'stamp', label: 'Kadr əmrləri (PDF)' },
       { screen: 'payroll-runs', icon: 'wallet', label: 'Əməkhaqqı hesabla' },
+      { screen: 'timesheets', icon: 'clock', label: 'Tabel (T-13)' },
       { screen: 'leave-requests', icon: 'palmtree', label: 'Məzuniyyətlər' },
-      { screen: 'timesheets', icon: 'clock', label: 'Tabel' },
-      { screen: 'approvals', icon: 'check', label: 'Təsdiqlər' },
-      { screen: 'reports', icon: 'alert', label: 'Xəbərdarlıqlar' },
-      { entity: 'employees', icon: 'users', label: 'İşçilər' }
+      { screen: 'compliance', icon: 'report', label: 'Dövlət hesabatları' },
+      { screen: 'recruitment', icon: 'user-search', label: 'İşə qəbul (Kanban)' },
+      { screen: 'approvals', icon: 'check', label: 'Təsdiqlər' }
     ];
     return items.filter(function (item) {
       return item.screen ? hasScreen(item.screen) : !!state.entityMap[item.entity];
     }).map(function (item) {
       var href = item.screen ? '#/s/' + item.screen : '#/entity/' + item.entity;
-      return '<a class="quick-link" href="' + href + '">' + icon(item.icon) + '<span>' + esc(item.label) + '</span></a>';
+      return '<a class="quick-link" href="' + href + '"><span class="q-icon">' + icon(item.icon) + '</span><span>' + esc(item.label) + '</span></a>';
     }).join('');
   }
 
@@ -1334,6 +1482,39 @@
     var dash = results[0];
     var trend = results[1] || [];
     var latest = dash.latest_payroll;
+    var userName = (state.user && state.user.full_name) || (state.user && state.user.email) || 'İstifadəçi';
+
+    var pendingItems = [];
+    if (dash.pending_leave_requests > 0) {
+      pendingItems.push('<a href="#/s/leave-requests" class="alert-chip amber">' + icon('palmtree') + ' ' + dash.pending_leave_requests + ' məzuniyyət təsdiq gözləyir</a>');
+    }
+    if (dash.expiring_documents_60d > 0) {
+      pendingItems.push('<a href="#/s/reports" class="alert-chip rose">' + icon('file') + ' ' + dash.expiring_documents_60d + ' sənədin müddəti bitir</a>');
+    }
+    if (dash.expiring_permits_60d > 0) {
+      pendingItems.push('<a href="#/s/reports" class="alert-chip slate">' + icon('globe') + ' ' + dash.expiring_permits_60d + ' miqrasiya icazəsi bitir</a>');
+    }
+
+    var alertBannerHTML = pendingItems.length ? (
+      '<div class="action-alert-banner">' +
+      '<span class="alert-icon">🔔</span>' +
+      '<div><strong>Diqqət tələb edən məsələlər:</strong> ' + pendingItems.join(' ') + '</div>' +
+      '</div>'
+    ) : '';
+
+    var welcomeBannerHTML =
+      '<div class="welcome-banner card">' +
+      '<div class="welcome-copy">' +
+      '<span class="welcome-badge">HR & Payroll İdarəetmə Paneli</span>' +
+      '<h2>Xoş gəlmisiniz, ' + esc(userName) + ' 👋</h2>' +
+      '<p class="muted">Təşkilat üzrə kadr, iş vaxtı, əməkhaqqı və qanunvericilik uyğunluğu göstəriciləri bir baxışda.</p>' +
+      '</div>' +
+      '<div class="welcome-actions">' +
+      (isHrWriter() ? '<button class="btn primary" type="button" data-act="quick-new-order">' + icon('stamp') + 'Yeni Əmr</button>' : '') +
+      (isHrWriter() ? '<button class="btn ghost" type="button" data-act="quick-new-employee">' + icon('users') + 'Yeni İşçi</button>' : '') +
+      (hasScreen('leave-requests') ? '<a class="btn ghost" href="#/s/leave-requests">' + icon('palmtree') + 'Məzuniyyətlər</a>' : '') +
+      (hasScreen('payroll-runs') ? '<a class="btn ghost" href="#/s/payroll-runs">' + icon('wallet') + 'Əməkhaqqı</a>' : '') +
+      '</div></div>';
 
     var kpis = [
       { label: 'Aktiv işçilər', value: fmtNumber(dash.headcount, 0), hint: 'cari işçi sayı', icon: 'users', tone: 'teal', href: state.entityMap.employees ? '#/entity/employees' : null },
@@ -1395,7 +1576,11 @@
     }).join('') || '<p class="hint">Yaş məlumatı yoxdur</p>';
 
     $('#view').innerHTML =
+      welcomeBannerHTML +
+      alertBannerHTML +
       '<div class="stat-grid">' + kpiHTML + '</div>' +
+      '<section class="card card-pad" style="margin-bottom: 20px;"><div class="card-head" style="border:none; padding: 0 0 14px 0;"><div><h2>Sürətli əməliyyatlar</h2><p class="muted">Ən çox istifadə edilən əsas modullar</p></div></div>' +
+      '<div class="quick-grid">' + quickLinksHTML() + '</div></section>' +
       '<div class="dash-grid">' +
       '<section class="card card-pad span-2"><div class="card-head"><div><h2>Əməkhaqqı fondu dinamikası</h2><p class="muted">Aylıq bruto və net məbləğlər</p></div>' +
       '<div class="legend"><span><i class="dot gross"></i>Bruto</span><span><i class="dot net"></i>Net</span></div></div>' +
@@ -1412,10 +1597,6 @@
       (other ? '<span><i class="dot other"></i>Digər · ' + esc(other) + '</span>' : '') + '</div></div></section>' +
       '<section class="card card-pad"><div class="card-head"><div><h2>Departamentlər</h2><p class="muted">İşçi sayına görə</p></div></div>' + deptHTML + '</section>' +
       '<section class="card card-pad"><div class="card-head"><div><h2>Yaş qrupları</h2><p class="muted">Aktiv işçilər</p></div></div>' + ageHTML + '</section>' +
-      '<section class="card card-pad span-2"><div class="card-head"><div><h2>Sürətli əməliyyatlar</h2><p class="muted">Ən çox istifadə edilən bölmələr</p></div></div>' +
-      '<div class="quick-grid">' +
-      quickLinksHTML() +
-      '</div></section>' +
       '</div>';
   }
 
@@ -2827,6 +3008,12 @@
           return;
         case 'modal-close':
           closeModal();
+          return;
+        case 'quick-new-order':
+          await openEntityForm('hr-orders');
+          return;
+        case 'quick-new-employee':
+          await openEntityForm('employees');
           return;
         case 'entity-create':
           await openEntityForm(key);
