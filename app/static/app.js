@@ -709,7 +709,11 @@
       var actions = '';
       if (key === 'employees') {
         actions += '<button class="btn sm ghost" type="button" data-act="employee-profile" data-id="' + row.id + '">Profil</button>';
+        actions += '<button class="btn sm ghost" type="button" data-act="employee-reference-pdf" data-id="' + row.id + '">' + icon('download') + 'Arayış</button>';
         if (canPreviewSettlement()) actions += '<button class="btn sm ghost" type="button" data-act="settlement-preview" data-id="' + row.id + '">Haqq-hesab</button>';
+      }
+      if (key === 'hr-orders') {
+        actions += '<button class="btn sm ghost" type="button" data-act="order-pdf" data-id="' + row.id + '">' + icon('download') + 'Əmr PDF</button>';
       }
       if (key === 'contracts') actions += '<button class="btn sm ghost" type="button" data-act="contract-detail" data-id="' + row.id + '">Detal</button>';
       if (key === 'service-contracts' && roleIn(['SUPERADMIN', 'HR_DIRECTOR', 'HR_SPECIALIST', 'ACCOUNTANT'])) {
@@ -717,6 +721,7 @@
       }
       if (key === 'applications' && roleIn(['SUPERADMIN', 'HR_DIRECTOR', 'HR_SPECIALIST', 'DEPT_MANAGER'])) {
         actions += '<button class="btn sm ghost" type="button" data-act="application-manage" data-id="' + row.id + '">İdarə et</button>';
+        actions += '<button class="btn sm ghost" type="button" data-act="offer-letter-pdf" data-id="' + row.id + '">' + icon('download') + 'Təklif</button>';
       }
       if (key === 'trips') {
         if (canApproveTrips() && row.status === 'PENDING') actions += '<button class="btn sm primary" type="button" data-act="trip-action" data-id="' + row.id + '" data-op="approve">Təsdiqlə</button>';
@@ -1101,6 +1106,7 @@
         '<label class="field span-2"><span>Qeydlər</span><textarea name="notes" rows="2">' + esc(application.notes || '') + '</textarea></label>' +
         '</form></section></div>' + hireSection,
       footer: '<button class="btn ghost" type="button" data-act="modal-close">Bağla</button>' +
+        '<button class="btn ghost" type="button" data-act="offer-letter-pdf" data-id="' + id + '">' + icon('download') + 'İş təklifi (PDF)</button>' +
         '<button class="btn ghost" type="submit" form="application-stage-form">' + icon('check') + 'Mərhələni saxla</button>' +
         (hireSection ? '<button class="btn primary" type="submit" form="application-hire-form">' + icon('user-search') + 'İşə qəbul et</button>' : '')
     });
@@ -2085,7 +2091,9 @@
       '<input type="number" name="year" min="2000" max="2100" value="' + year + '">' +
       '<select name="month">' + monthOptions + '</select>' +
       '<button class="btn ghost" type="submit">' + icon('refresh') + 'Göstər</button></form>' +
-      '<div class="toolbar-actions"><button class="btn ghost" type="button" data-act="compliance-export" data-year="' + year + '" data-month="' + month + '">' + icon('download') + 'Vahid bəyannamə CSV</button></div></div>' +
+      '<div class="toolbar-actions">' +
+      '<button class="btn ghost" type="button" data-act="compliance-military-export">' + icon('download') + 'Hərbi uçot (T-2) CSV</button>' +
+      '<button class="btn ghost" type="button" data-act="compliance-export" data-year="' + year + '" data-month="' + month + '">' + icon('download') + 'Vahid bəyannamə CSV</button></div></div>' +
       '<section class="card card-pad"><div class="card-head"><div><h2>İSB göstəriciləri</h2><p class="muted">' + esc(year + '-' + pad(month)) + ' dövrü üzrə</p></div></div>' + isbHTML + '</section>' +
       '<section class="card table-card"><div class="card-head pad"><div><h2>Vahid bəyannamə sətirləri</h2><p class="muted">' + declarationRows.length + ' işçi sətri</p></div></div>' +
       (declarationRows.length ? '<div class="table-wrap"><table class="data"><thead><tr>' + tableHead + '</tr></thead><tbody>' + tableRows + '</tbody></table></div>'
@@ -2645,7 +2653,9 @@
       '<div class="profile-head card card-pad"><div class="profile-identity">' +
       '<span class="avatar xl">' + esc(initials(name)) + '</span>' +
       '<div><h2>' + esc(name) + '</h2><p class="muted">' + esc(humanize(employee.status)) + ' · FİN ' + esc(employee.pin_code || '—') + '</p></div></div>' +
-      '<div class="toolbar-actions"><button class="btn primary" type="button" data-act="ess-new-leave">' + icon('palmtree') + 'Məzuniyyət sorğusu</button></div></div>' +
+      '<div class="toolbar-actions">' +
+      '<button class="btn ghost" type="button" data-act="ess-reference-pdf">' + icon('download') + 'İş yerindən arayış (PDF)</button>' +
+      '<button class="btn primary" type="button" data-act="ess-new-leave">' + icon('palmtree') + 'Məzuniyyət sorğusu</button></div></div>' +
       '<div class="dash-grid">' +
       '<section class="card card-pad"><div class="card-head"><div><h2>Şəxsi məlumatlar</h2></div></div>' +
       '<dl class="mini-dl"><div><dt>Doğum tarixi</dt><dd>' + esc(fmtDate(employee.birth_date)) + '</dd></div>' +
@@ -2784,6 +2794,7 @@
         size: 'wide',
         body: employeeProfileHTML(profile),
         footer: '<a class="btn ghost" href="#/s/employee/' + id + '" data-act="modal-close">Tam səhifə</a>' +
+          '<button class="btn ghost" type="button" data-act="employee-reference-pdf" data-id="' + id + '">' + icon('download') + 'Arayış (PDF)</button>' +
           (canPreviewSettlement() ? '<button class="btn ghost" type="button" data-act="settlement-preview" data-id="' + id + '">' + icon('wallet') + 'Son haqq-hesab</button>' : '') +
           '<button class="btn primary" type="button" data-act="modal-close">Bağla</button>'
       });
@@ -2798,6 +2809,7 @@
     setHeader([employee.last_name, employee.first_name].filter(Boolean).join(' '), 'FİN ' + (employee.pin_code || '—'));
     $('#view').innerHTML = '<div class="page-toolbar"><div class="toolbar-info"><a class="back-link" href="#/entity/employees">' + icon('arrow-left') + 'İşçilər</a></div>' +
       '<div class="toolbar-actions">' +
+      '<button class="btn ghost" type="button" data-act="employee-reference-pdf" data-id="' + id + '">' + icon('download') + 'Arayış (PDF)</button>' +
       (canPreviewSettlement() ? '<button class="btn ghost" type="button" data-act="settlement-preview" data-id="' + id + '">' + icon('wallet') + 'Son haqq-hesab</button>' : '') +
       '<a class="btn ghost" href="#/entity/employees">Bütün işçilər</a></div></div>' + employeeProfileHTML(profile);
   }
@@ -3005,6 +3017,21 @@
           return;
         case 'ess-payslip':
           await downloadFile('/ess/payslips/' + id + '/pdf', 'payslip-' + id + '.pdf');
+          return;
+        case 'ess-reference-pdf':
+          await downloadFile('/ess/reference.pdf', 'is-yerinden-arayis.pdf');
+          return;
+        case 'employee-reference-pdf':
+          await downloadFile('/employees/' + id + '/reference.pdf', 'arayis-' + id + '.pdf');
+          return;
+        case 'order-pdf':
+          await downloadFile('/hr-orders/' + id + '/order.pdf', 'emr-' + id + '.pdf');
+          return;
+        case 'offer-letter-pdf':
+          await downloadFile('/applications/' + id + '/offer-letter.pdf', 'offer-letter-' + id + '.pdf');
+          return;
+        case 'compliance-military-export':
+          await downloadFile('/compliance/military-report' + (state.user && state.user.organization_id ? '?organization_id=' + state.user.organization_id : ''), 'herbi-ucot-t2.csv');
           return;
         default:
           return;

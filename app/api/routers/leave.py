@@ -1,8 +1,9 @@
+from calendar import monthrange
 from datetime import date, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.crud import build_crud_router, serialize
@@ -338,6 +339,36 @@ router.include_router(
         write_roles=HR_WRITE,
     )
 )
+def _validate_short_leave(data: dict, db: Session, user: User) -> dict:
+    emp = db.get(Employee, data.get("employee_id"))
+    if emp is None:
+        raise HTTPException(status_code=400, detail="İşçi tapılmadı")
+    _check_org(user, emp.organization_id)
+    hours = float(data.get("hours", 0))
+    if hours <= 0:
+        raise HTTPException(status_code=400, detail="İcazə müddəti 0-dan böyük olmalıdır")
+    if hours > 8.0:
+        raise HTTPException(status_code=400, detail="Bir günlük saatlıq icazə 8 saatdan çox ola bilməz")
+    raw_date = data.get("leave_date")
+    leave_date = date.fromisoformat(str(raw_date)) if isinstance(raw_date, (str, date)) else date.today()
+    month_start = date(leave_date.year, leave_date.month, 1)
+    month_end = date(leave_date.year, leave_date.month, monthrange(leave_date.year, leave_date.month)[1])
+    current_sum = db.scalar(
+        select(func.coalesce(func.sum(ShortLeaveRequest.hours), 0)).where(
+            ShortLeaveRequest.employee_id == emp.id,
+            ShortLeaveRequest.leave_date >= month_start,
+            ShortLeaveRequest.leave_date <= month_end,
+            ShortLeaveRequest.status.in_(["PENDING", "APPROVED"]),
+        )
+    ) or 0
+    if float(current_sum) + hours > 8.0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Aylıq saatlıq icazə limiti (8 saat) aşılır. Cari istifadə: {current_sum} saat, tələb olunan: {hours} saat",
+        )
+    return data
+
+
 router.include_router(
     build_crud_router(
         model=ShortLeaveRequest,
@@ -350,5 +381,6 @@ router.include_router(
         read_roles=HR_READ,
         write_roles=HR_WRITE,
         order_by="leave_date",
+        before_create=_validate_short_leave,
     )
 )

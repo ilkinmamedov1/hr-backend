@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from app.models.employee import (
 from app.models.leave import LeaveBalance
 from app.models.organization import Department, Position, StaffingTable
 from app.models.user import User
+from app.services.export_service import generate_employment_reference_pdf
 from app.services.leave_service import final_settlement_preview
 
 router = APIRouter(tags=["M02 · İşçilərin Şəxsi İşləri"])
@@ -158,6 +159,26 @@ def get_final_settlement_preview(
         return final_settlement_preview(db, employee_id, termination_date, reason)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/employees/{employee_id}/reference.pdf")
+def employee_reference_pdf(
+    employee_id: int,
+    purpose: str = Query("Tələb olunan yerə"),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*HR_READ)),
+):
+    employee = db.get(Employee, employee_id)
+    if employee is None:
+        raise HTTPException(status_code=404, detail="İşçi tapılmadı")
+    if user.role != Role.SUPERADMIN.value and user.organization_id != employee.organization_id:
+        raise HTTPException(status_code=404, detail="İşçi tapılmadı")
+    pdf = generate_employment_reference_pdf(db, employee_id, purpose=purpose)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="arayis-{employee.pin_code}.pdf"'},
+    )
 
 
 router.include_router(

@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,7 @@ from app.api.crud import build_crud_router, serialize
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.core.rbac import Role
+from app.models.compliance import EmasSyncLog
 from app.models.contract import (
     ContractAmendment,
     EmploymentContract,
@@ -19,6 +20,7 @@ from app.models.employee import Employee
 from app.models.leave import LeaveBalance
 from app.models.organization import StaffingTable
 from app.models.user import User
+from app.services.export_service import generate_hr_order_pdf
 from app.services.leave_service import (
     all_balances_for_employee,
     ensure_balances_for_contract,
@@ -67,6 +69,25 @@ def _validate_contract(data: dict, db: Session, user: User) -> dict:
 def _init_balances(contract: EmploymentContract, db: Session, user: User | None = None) -> None:
     if contract.status == "ACTIVE":
         ensure_balances_for_contract(db, contract)
+        emas_log = EmasSyncLog(
+            organization_id=contract.organization_id,
+            entity_type="EMPLOYMENT_CONTRACT",
+            entity_id=contract.id,
+            action_type="CREATE",
+            request_payload={
+                "contract_id": contract.id,
+                "contract_number": contract.contract_number,
+                "employee_id": contract.employee_id,
+                "start_date": contract.start_date.isoformat(),
+                "contract_type": contract.contract_type,
+                "work_type": contract.work_type,
+                "gross_salary": float(contract.gross_salary),
+            },
+            response_payload={},
+            emas_status="QUEUED",
+            retry_count=0,
+        )
+        db.add(emas_log)
 
 
 @router.get("/contracts/{contract_id}/leave-balances")
@@ -144,6 +165,24 @@ def create_amendment(
     if payload.get("new_end_date") is not None:
         contract.end_date = _to_date(payload["new_end_date"])
     db.add(amendment)
+    emas_amendment_log = EmasSyncLog(
+        organization_id=contract.organization_id,
+        entity_type="CONTRACT_AMENDMENT",
+        entity_id=amendment.id,
+        action_type="UPDATE",
+        request_payload={
+            "contract_id": contract.id,
+            "amendment_no": amendment.amendment_no,
+            "effective_date": amendment.effective_date.isoformat(),
+            "new_salary": float(amendment.new_salary) if amendment.new_salary else None,
+            "new_staffing_id": amendment.new_staffing_id,
+            "reason": amendment.reason,
+        },
+        response_payload={},
+        emas_status="QUEUED",
+        retry_count=0,
+    )
+    db.add(emas_amendment_log)
     db.commit()
     db.refresh(amendment)
     return serialize(amendment)
@@ -191,6 +230,26 @@ def terminate_contract(
     employee = db.get(Employee, contract.employee_id)
     if employee:
         employee.status = "TERMINATED"
+
+    emas_term_log = EmasSyncLog(
+        organization_id=contract.organization_id,
+        entity_type="CONTRACT_TERMINATION",
+        entity_id=contract.id,
+        action_type="TERMINATE",
+        request_payload={
+            "contract_id": contract.id,
+            "contract_number": contract.contract_number,
+            "employee_id": contract.employee_id,
+            "termination_date": termination_date.isoformat(),
+            "labor_code_article": payload.get("labor_code_article"),
+            "order_number": order.order_number,
+            "final_settlement": preview,
+        },
+        response_payload={},
+        emas_status="QUEUED",
+        retry_count=0,
+    )
+    db.add(emas_term_log)
     db.commit()
     return {"contract_id": contract.id, "status": contract.status, "settlement": preview, "order_id": order.id}
 
@@ -215,6 +274,25 @@ def service_contract_tax_preview(
         "dsmf": float(dsmf),
         "net_to_contractor": float(amount - withholding - dsmf),
     }
+
+
+@router.get("/hr-orders/{order_id}/order.pdf")
+def hr_order_pdf(
+    order_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*HR_READ)),
+):
+    order = db.get(HrOrder, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Əmr tapılmadı")
+    _ensure_org(user, order.organization_id)
+    pdf = generate_hr_order_pdf(db, order_id)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="emr-{order.order_number}.pdf"'},
+    )
+
 
 
 router.include_router(

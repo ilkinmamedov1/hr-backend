@@ -28,13 +28,59 @@ def _check_org(user: User, organization_id: int | None) -> None:
         raise HTTPException(status_code=404, detail="Qeyd tapılmadı")
 
 
+from app.services.export_service import calculate_trip_advance_norms
+
+
 def _validate_trip(data: dict, db: Session, user: User) -> dict:
     employee = db.get(Employee, data.get("employee_id"))
     if employee is None:
         raise HTTPException(status_code=400, detail="İşçi tapılmadı")
     _check_org(user, employee.organization_id)
     data["organization_id"] = employee.organization_id
+
+    if "start_date" in data and "end_date" in data:
+        try:
+            start = date.fromisoformat(str(data["start_date"]))
+            end = date.fromisoformat(str(data["end_date"]))
+            days = max((end - start).days + 1, 1)
+            norms = calculate_trip_advance_norms(
+                data.get("destination_city", ""),
+                bool(data.get("is_foreign", False)),
+                days,
+            )
+            if not data.get("daily_allowance"):
+                data["daily_allowance"] = norms["daily_allowance"]
+            if not data.get("hotel_limit"):
+                data["hotel_limit"] = norms["hotel_limit"]
+            if not data.get("total_advance"):
+                data["total_advance"] = norms["total_advance"]
+        except Exception:
+            pass
     return data
+
+
+@router.post("/trips/calculate-advance")
+def calculate_advance_endpoint(
+    payload: dict = Body(...),
+    user: User = Depends(require_roles(*TRIP_READ)),
+):
+    try:
+        start_date = date.fromisoformat(str(payload["start_date"]))
+        end_date = date.fromisoformat(str(payload["end_date"]))
+        days = max((end_date - start_date).days + 1, 1)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Tarix formatı düzgün deyil (YYYY-MM-DD)")
+    norms = calculate_trip_advance_norms(
+        payload.get("destination_city", ""),
+        bool(payload.get("is_foreign", False)),
+        days,
+    )
+    return {
+        "days": days,
+        "daily_allowance": float(norms["daily_allowance"]),
+        "hotel_limit": float(norms["hotel_limit"]),
+        "total_advance": float(norms["total_advance"]),
+    }
 
 
 def _validate_trip_update(row: BusinessTrip, data: dict, db: Session, user: User) -> dict:

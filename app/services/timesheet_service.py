@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.contract import EmploymentContract
 from app.models.employee import Employee
-from app.models.leave import LeaveRequest, LeaveType, SickLeave
+from app.models.leave import LeaveRequest, LeaveType, SickLeave, ShortLeaveRequest
 from app.models.time import AttendanceLog, EmployeeSchedule, Timesheet, WorkSchedule
 from app.models.trip import BusinessTrip
 from app.services.calendar_service import get_month_calendar
@@ -154,6 +154,18 @@ def generate_timesheet(
             trip_days_set.add(cursor)
             cursor += timedelta(days=1)
 
+    short_leaves_by_day: dict[date, Decimal] = {}
+    for short_req in db.scalars(
+        select(ShortLeaveRequest).where(
+            ShortLeaveRequest.employee_id == contract.employee_id,
+            ShortLeaveRequest.status == "APPROVED",
+            ShortLeaveRequest.leave_date >= month_start,
+            ShortLeaveRequest.leave_date <= month_end,
+        )
+    ):
+        day_date = short_req.leave_date
+        short_leaves_by_day[day_date] = short_leaves_by_day.get(day_date, Decimal("0")) + D(short_req.hours)
+
     start_dt = datetime.combine(month_start, time(0, 0), tzinfo=TZ)
     end_dt = datetime.combine(month_end + timedelta(days=1), time(0, 0), tzinfo=TZ)
     punches_by_day: dict[date, list[AttendanceLog]] = {}
@@ -182,6 +194,7 @@ def generate_timesheet(
         is_workday = row.day_type in ("WORKDAY", "SHORT_WORKDAY")
         day_norm = D(row.norm_hours_36 if use_36 else row.norm_hours_40)
         day_punches = punches_by_day.get(day, [])
+        short_hrs = short_leaves_by_day.get(day, Decimal("0"))
 
         if day in trip_days_set and is_workday:
             trip_days += 1
@@ -197,7 +210,8 @@ def generate_timesheet(
             worked_days += 1
             actual, night = _attendance_hours(day_punches, lunch_break)
             if actual > 0:
-                regular_hours += min(actual, day_norm)
+                effective_actual = min(actual + short_hrs, day_norm)
+                regular_hours += effective_actual
                 overtime_hours += max(actual - day_norm, Decimal("0"))
                 night_hours += night
             else:

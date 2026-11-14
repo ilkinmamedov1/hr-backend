@@ -1,7 +1,8 @@
+from calendar import monthrange
 from datetime import date, time
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.crud import serialize
@@ -14,7 +15,7 @@ from app.models.leave import LeaveBalance, LeaveRequest, LeaveType, ShortLeaveRe
 from app.models.payroll import PayrollItem, PayrollRun
 from app.models.time import Timesheet
 from app.models.user import User
-from app.services.export_service import generate_payslip_pdf
+from app.services.export_service import generate_employment_reference_pdf, generate_payslip_pdf
 from app.services.workflow_service import close_all_steps
 from app.services.leave_service import (
     create_leave_request,
@@ -214,9 +215,27 @@ def ess_create_short_leave(
     if end_time <= start_time:
         raise HTTPException(status_code=400, detail="Bitmə vaxtı başlama vaxtından sonra olmalıdır")
     hours = (datetime.combine(date.today(), end_time) - datetime.combine(date.today(), start_time)).seconds / 3600
+    if hours > 8.0:
+        raise HTTPException(status_code=400, detail="Bir günlük saatlıq icazə 8 saatdan çox ola bilməz")
+    leave_date = date.fromisoformat(str(payload["leave_date"]))
+    month_start = date(leave_date.year, leave_date.month, 1)
+    month_end = date(leave_date.year, leave_date.month, monthrange(leave_date.year, leave_date.month)[1])
+    current_sum = db.scalar(
+        select(func.coalesce(func.sum(ShortLeaveRequest.hours), 0)).where(
+            ShortLeaveRequest.employee_id == employee.id,
+            ShortLeaveRequest.leave_date >= month_start,
+            ShortLeaveRequest.leave_date <= month_end,
+            ShortLeaveRequest.status.in_(["PENDING", "APPROVED"]),
+        )
+    ) or 0
+    if float(current_sum) + hours > 8.0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Aylıq saatlıq icazə limiti (8 saat) aşılır. Cari istifadə: {current_sum} saat, tələb olunan: {hours:.2f} saat",
+        )
     row = ShortLeaveRequest(
         employee_id=employee.id,
-        leave_date=date.fromisoformat(str(payload["leave_date"])),
+        leave_date=leave_date,
         start_time=start_time,
         end_time=end_time,
         hours=round(hours, 2),
@@ -256,3 +275,19 @@ def ess_calendar(
     from app.services.calendar_service import get_month_calendar
 
     return [serialize(row) for row in get_month_calendar(db, year, month)]
+
+
+@router.get("/ess/reference.pdf")
+def ess_reference_pdf(
+    purpose: str = Query("Tələb olunan yerə"),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*ALL_ROLES)),
+):
+    employee = _employee(user, db)
+    pdf = generate_employment_reference_pdf(db, employee.id, purpose=purpose)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="arayis-{employee.pin_code}.pdf"'},
+    )
+

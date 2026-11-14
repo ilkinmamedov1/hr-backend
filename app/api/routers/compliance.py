@@ -11,6 +11,7 @@ from app.models.compliance import EmasSyncLog, GovernmentReport
 from app.models.user import User
 from app.services.export_service import (
     isb_report,
+    military_report_csv,
     unified_declaration_csv,
     unified_declaration_rows,
 )
@@ -71,6 +72,26 @@ def isb(
         return isb_report(db, org_id, year, month)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.get("/compliance/military-report")
+def military_report(
+    organization_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*COMPLIANCE_WRITE)),
+):
+    org_id = organization_id or user.organization_id
+    if not org_id:
+        raise HTTPException(status_code=400, detail="organization_id tələb olunur")
+    _check_org(user, org_id)
+    content = military_report_csv(db, org_id)
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="herbi-ucot-forma-t2-{org_id}.csv"'
+        },
+    )
 
 
 @router.post("/compliance/emas/queue", status_code=201)

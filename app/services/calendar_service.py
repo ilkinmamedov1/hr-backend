@@ -103,7 +103,13 @@ def generate_year_calendar(db: Session, year: int) -> int:
             and next_day in holiday_dates
         )
 
-        if is_holiday:
+        is_mourning = (current.month == 1 and current.day == 20)
+        if is_mourning:
+            day_type = "MOURNING"
+            description = "Ümumxalq hüzn günü (20 Yanvar)"
+            norm40 = Decimal("0")
+            norm36 = Decimal("0")
+        elif is_holiday:
             day_type = "HOLIDAY"
             description = all_holidays.get((current.month, current.day), "Bayram")
             norm40 = Decimal("0")
@@ -114,7 +120,8 @@ def generate_year_calendar(db: Session, year: int) -> int:
             norm36 = Decimal("0")
         elif pre_holiday:
             day_type = "SHORT_WORKDAY"
-            description = description or "Bayramqabağı qısaldılmış iş günü"
+            is_pre_mourning = (next_day.month == 1 and next_day.day == 20)
+            description = "Hüznqabağı qısaldılmış iş günü" if is_pre_mourning else (description or "Bayramqabağı qısaldılmış iş günü")
             norm40 = Decimal("7.00")
             norm36 = Decimal("6.20")
         else:

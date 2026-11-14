@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -9,7 +9,8 @@ from app.api.crud import build_crud_router, serialize
 from app.api.deps import require_roles
 from app.core.database import get_db
 from app.core.rbac import Role
-from app.models.contract import EmploymentContract
+from app.models.compliance import EmasSyncLog
+from app.models.contract import EmploymentContract, HrOrder
 from app.models.employee import Employee
 from app.models.organization import Department, StaffingTable
 from app.models.recruitment import (
@@ -20,6 +21,7 @@ from app.models.recruitment import (
     Vacancy,
 )
 from app.models.user import User
+from app.services.export_service import generate_offer_letter_pdf
 from app.services.leave_service import ensure_balances_for_contract
 
 router = APIRouter(tags=["M09 · İşə Qəbul (ATS)"])
@@ -71,6 +73,25 @@ def move_stage(
         application.notes = payload["notes"]
     db.commit()
     return serialize(application)
+
+
+@router.get("/applications/{application_id}/offer-letter.pdf")
+def offer_letter_pdf(
+    application_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*RECRUIT_READ)),
+):
+    application = db.get(Application, application_id)
+    if application is None:
+        raise HTTPException(status_code=404, detail="Müraciət tapılmadı")
+    vacancy = db.get(Vacancy, application.vacancy_id)
+    _ensure_org(user, vacancy.organization_id if vacancy else None)
+    pdf = generate_offer_letter_pdf(db, application_id)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="offer-letter-{application_id}.pdf"'},
+    )
 
 
 @router.post("/applications/{application_id}/hire", status_code=201)
@@ -173,6 +194,45 @@ def hire_candidate(
                 status="PENDING",
             )
         )
+
+    order = HrOrder(
+        organization_id=org_id,
+        order_number=f"ISE-QEBL-{employee.id:05d}-{contract.start_date:%Y%m%d}",
+        order_type="HIRE",
+        employee_id=employee.id,
+        labor_code_article="AR ƏM m.68.1",
+        order_date=date.today(),
+        effective_date=contract.start_date,
+        payload_json={
+            "contract_id": contract.id,
+            "contract_number": contract.contract_number,
+            "position_id": staffing.position_id,
+            "gross_salary": float(contract.gross_salary),
+            "application_id": application.id,
+        },
+        status="SIGNED",
+        created_by=user.id,
+    )
+    db.add(order)
+
+    emas_hire_log = EmasSyncLog(
+        organization_id=org_id,
+        entity_type="EMPLOYMENT_CONTRACT",
+        entity_id=contract.id,
+        action_type="CREATE",
+        request_payload={
+            "contract_id": contract.id,
+            "contract_number": contract.contract_number,
+            "employee_id": employee.id,
+            "start_date": contract.start_date.isoformat(),
+            "gross_salary": float(contract.gross_salary),
+            "order_number": order.order_number,
+        },
+        response_payload={},
+        emas_status="QUEUED",
+        retry_count=0,
+    )
+    db.add(emas_hire_log)
 
     db.commit()
     db.refresh(employee)
