@@ -203,3 +203,62 @@ def test_hr_director_and_superadmin_operations(client):
     # Only superadmin can access system audit and users
     assert client.get("/api/v1/audit-logs", headers=admin_headers).status_code == 200
     assert client.get("/api/v1/auth/users", headers=admin_headers).status_code == 200
+
+
+def test_timesheet_matrix_and_daily_override(client):
+    """Test T-13 1..31 day matrix, daily punch breakdown, and daily manual override."""
+    hr_headers = get_headers(client, "hr_director")
+
+    # 1. Matrix view
+    mat_resp = client.get("/api/v1/timesheets/matrix?year=2026&month=11", headers=hr_headers)
+    assert mat_resp.status_code == 200
+    mat = mat_resp.json()
+    assert "calendar_days" in mat
+    assert len(mat["employees"]) > 0
+    first_sheet = mat["employees"][0]
+    sheet_id = first_sheet["timesheet_id"]
+    assert "daily_records" in first_sheet
+
+    # 2. Daily breakdown for single sheet
+    daily_resp = client.get(f"/api/v1/timesheets/{sheet_id}/daily", headers=hr_headers)
+    assert daily_resp.status_code == 200
+    assert "daily_records" in daily_resp.json()
+
+    # 3. Daily manual override (e.g. employee forgot card)
+    ovr_resp = client.post(
+        f"/api/v1/timesheets/{sheet_id}/daily-override",
+        headers=hr_headers,
+        json={
+            "day": "2026-11-04",
+            "worked_hours": 7.5,
+            "code": "İ",
+            "notes": "İcazəli qısaldılmış gün",
+        },
+    )
+    assert ovr_resp.status_code == 200
+    rec = ovr_resp.json()["record"]
+    assert rec["is_manual_override"] is True
+    assert rec["worked_hours"] == 7.5
+
+
+def test_attendance_monitoring_and_turnstile(client):
+    """Test turnstile punch log import, simulation, and live daily attendance monitoring."""
+    hr_headers = get_headers(client, "hr_director")
+
+    # 1. Attendance today summary
+    sum_resp = client.get("/api/v1/attendance/today-summary", headers=hr_headers)
+    assert sum_resp.status_code == 200
+    summary = sum_resp.json()
+    assert "total_employees" in summary
+    assert "present_count" in summary
+    assert "employees" in summary
+
+    # 2. Import CSV punch log
+    csv_payload = "pin_code,punch_time,direction,device_id\n1234567,2026-11-15 08:52:00,IN,TURNSTILE-01\n"
+    imp_resp = client.post(
+        "/api/v1/attendance/import-csv",
+        headers=hr_headers,
+        json={"csv_text": csv_payload},
+    )
+    assert imp_resp.status_code == 200
+    assert imp_resp.json()["created"] >= 1

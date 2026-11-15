@@ -109,3 +109,6 @@ class Timesheet(Base, TimestampMixin):
     absent_days: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="OPEN", nullable=False)
     approved_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"))
+    daily_records_json: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )

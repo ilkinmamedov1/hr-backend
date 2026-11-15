@@ -330,6 +330,28 @@ def calculate_payroll_run(db: Session, run: PayrollRun, actor_id: int | None = N
                 }
             )
 
+        total_late_minutes = 0
+        if timesheet.daily_records_json and isinstance(timesheet.daily_records_json, dict):
+            for d_rec in timesheet.daily_records_json.values():
+                if isinstance(d_rec, dict):
+                    total_late_minutes += int(d_rec.get("late_minutes", 0))
+
+        if total_late_minutes > 15:
+            late_deduction = q(hourly_rate * (Decimal(total_late_minutes) / Decimal(60)))
+            if late_deduction > 0:
+                other_deductions += late_deduction
+                deduction_details.append(
+                    {
+                        "component_code": "TURNIKET_LATE",
+                        "direction": "DEDUCTION",
+                        "amount": late_deduction,
+                        "base_amount": hourly_rate,
+                        "quantity": Decimal(total_late_minutes),
+                        "rate": None,
+                        "calc_formula_note": f"Turniket gecikmə kəsintisi: {total_late_minutes} dəqiqə ({float(hourly_rate):.2f} AZN/saat)",
+                    }
+                )
+
         exemptions = _exemption_total(db, employee.id, year, month)
         taxes = calculate_taxes(
             taxable_base=taxable_base,

@@ -79,8 +79,14 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.middleware("http")
 async def audit_context_middleware(request: Request, call_next):
-    current_user_id.set(None)
-    current_ip.set(request.client.host if request.client else None)
+    client_ip = request.client.host if request.client else None
+    if client_ip:
+        import ipaddress
+        try:
+            ipaddress.ip_address(client_ip)
+        except ValueError:
+            client_ip = "127.0.0.1" if client_ip == "testclient" else None
+    current_ip.set(client_ip)
     authorization = request.headers.get("authorization", "")
     if authorization.lower().startswith("bearer "):
         try:

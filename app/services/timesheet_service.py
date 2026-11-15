@@ -189,37 +189,136 @@ def generate_timesheet(
     trip_days = 0
     absent_days = 0
 
+    AZ_WEEKDAYS = ["B.e", "Ç.a", "Ç", "C.a", "C", "Ş", "B"]
+    daily_records: dict[str, dict] = {}
+    existing_daily = (timesheet.daily_records_json or {}) if timesheet else {}
+
     for row in rows:
         day = row.cal_date
+        day_str = str(day)
         is_workday = row.day_type in ("WORKDAY", "SHORT_WORKDAY")
         day_norm = D(row.norm_hours_36 if use_36 else row.norm_hours_40)
         day_punches = punches_by_day.get(day, [])
         short_hrs = short_leaves_by_day.get(day, Decimal("0"))
+        weekday_name = AZ_WEEKDAYS[day.weekday()]
+
+        punch_in_str = None
+        punch_out_str = None
+        late_minutes = 0
+        if day_punches:
+            sorted_punches = sorted(day_punches, key=lambda p: p.punch_time)
+            first_dt = sorted_punches[0].punch_time.astimezone(TZ)
+            last_dt = sorted_punches[-1].punch_time.astimezone(TZ)
+            punch_in_str = first_dt.strftime("%H:%M")
+            if len(sorted_punches) > 1 and last_dt != first_dt:
+                punch_out_str = last_dt.strftime("%H:%M")
+            expected_start = datetime.combine(day, time(9, 0), tzinfo=TZ)
+            if first_dt > expected_start:
+                late_minutes = max(0, int((first_dt - expected_start).total_seconds() // 60))
+
+        override = existing_daily.get(day_str)
+        if override and override.get("is_manual_override"):
+            code = override.get("code", "İ")
+            worked_hrs = Decimal(str(override.get("worked_hours", day_norm)))
+            label = override.get("type_label", "Əl ilə təsdiq")
+            day_overtime = Decimal(str(override.get("overtime_hours", 0)))
+            night = Decimal(str(override.get("night_hours", 0)))
+            if is_workday:
+                worked_days += 1
+                regular_hours += worked_hrs
+                overtime_hours += day_overtime
+                night_hours += night
+            daily_records[day_str] = {
+                **override,
+                "day": day.day,
+                "date": day_str,
+                "weekday": weekday_name,
+                "punch_in": punch_in_str or override.get("punch_in"),
+                "punch_out": punch_out_str or override.get("punch_out"),
+                "late_minutes": late_minutes or override.get("late_minutes", 0),
+            }
+            continue
 
         if day in trip_days_set and is_workday:
             trip_days += 1
             worked_days += 1
             regular_hours += day_norm
+            code = "EZ"
+            label = "Ezamiyyət"
+            worked_hrs = day_norm
+            day_overtime = Decimal("0")
+            night = Decimal("0")
         elif day in sick_days_set and is_workday:
             sick_days += 1
+            code = "X"
+            label = "Xəstəlik"
+            worked_hrs = Decimal("0")
+            day_overtime = Decimal("0")
+            night = Decimal("0")
         elif day in paid_leave_days and is_workday:
             vacation_days += 1
+            code = "M"
+            label = "Məzuniyyət"
+            worked_hrs = Decimal("0")
+            day_overtime = Decimal("0")
+            night = Decimal("0")
         elif day in unpaid_leave_days and is_workday:
             absent_days += 1
+            code = "Q"
+            label = "Ödənişsiz məzuniyyət"
+            worked_hrs = Decimal("0")
+            day_overtime = Decimal("0")
+            night = Decimal("0")
         elif is_workday:
             worked_days += 1
             actual, night = _attendance_hours(day_punches, lunch_break)
             if actual > 0:
                 effective_actual = min(actual + short_hrs, day_norm)
                 regular_hours += effective_actual
-                overtime_hours += max(actual - day_norm, Decimal("0"))
+                day_overtime = max(actual - day_norm, Decimal("0"))
+                overtime_hours += day_overtime
                 night_hours += night
+                code = "İ"
+                label = f"İş günü ({float(effective_actual):.1f}s)"
+                worked_hrs = effective_actual
             else:
                 regular_hours += day_norm
+                day_overtime = Decimal("0")
+                code = "İ"
+                label = f"İş günü ({float(day_norm):.1f}s)"
+                worked_hrs = day_norm
         elif day_punches:
             actual, night = _attendance_hours(day_punches, lunch_break)
             holiday_hours += actual
             night_hours += night
+            code = "B" if row.day_type == "HOLIDAY" else "İQ"
+            label = "İstirahət/Bayram işi"
+            worked_hrs = actual
+            day_overtime = Decimal("0")
+        else:
+            code = "B" if row.day_type == "HOLIDAY" else "İQ"
+            label = row.description or ("Bayram" if row.day_type == "HOLIDAY" else "İstirahət")
+            worked_hrs = Decimal("0")
+            day_overtime = Decimal("0")
+            night = Decimal("0")
+
+        daily_records[day_str] = {
+            "day": day.day,
+            "date": day_str,
+            "weekday": weekday_name,
+            "day_type": row.day_type,
+            "code": code,
+            "type_label": label,
+            "norm_hours": float(day_norm),
+            "worked_hours": float(worked_hrs),
+            "overtime_hours": float(day_overtime),
+            "night_hours": float(night),
+            "punch_in": punch_in_str,
+            "punch_out": punch_out_str,
+            "late_minutes": late_minutes,
+            "is_manual_override": False,
+            "notes": None,
+        }
 
     if timesheet is None:
         timesheet = Timesheet(
@@ -242,10 +341,77 @@ def generate_timesheet(
     timesheet.sick_days = sick_days
     timesheet.trip_days = trip_days
     timesheet.absent_days = absent_days
+    timesheet.daily_records_json = daily_records
     if timesheet.status != "APPROVED":
         timesheet.status = "OPEN"
     db.flush()
     return timesheet
+
+
+def override_timesheet_day(
+    db: Session,
+    timesheet: Timesheet,
+    day_date: date,
+    worked_hours: Decimal,
+    code: str,
+    notes: str | None = None,
+    actor_id: int | None = None,
+) -> dict:
+    if timesheet.status == "LOCKED":
+        raise ValueError("LOCKED statusunda olan tabel redaktə edilə bilməz")
+    daily = dict(timesheet.daily_records_json or {})
+    day_str = str(day_date)
+    record = daily.get(day_str, {})
+    record["worked_hours"] = float(worked_hours)
+    record["code"] = code
+    record["is_manual_override"] = True
+    record["notes"] = notes
+    daily[day_str] = record
+    timesheet.daily_records_json = daily
+
+    recalc_worked_days = 0
+    recalc_reg_hours = Decimal("0")
+    recalc_ot_hours = Decimal("0")
+    recalc_night_hours = Decimal("0")
+    recalc_vac_days = 0
+    recalc_sick_days = 0
+    recalc_trip_days = 0
+    recalc_absent_days = 0
+
+    for d_str, d_rec in daily.items():
+        c = d_rec.get("code")
+        wh = Decimal(str(d_rec.get("worked_hours", 0)))
+        ot = Decimal(str(d_rec.get("overtime_hours", 0)))
+        nh = Decimal(str(d_rec.get("night_hours", 0)))
+        if c == "İ":
+            if wh > 0:
+                recalc_worked_days += 1
+            recalc_reg_hours += wh
+            recalc_ot_hours += ot
+            recalc_night_hours += nh
+        elif c == "M":
+            recalc_vac_days += 1
+        elif c == "X":
+            recalc_sick_days += 1
+        elif c == "EZ":
+            recalc_trip_days += 1
+            recalc_worked_days += 1
+            recalc_reg_hours += wh
+        elif c == "Q":
+            recalc_absent_days += 1
+
+    timesheet.worked_days = recalc_worked_days
+    timesheet.regular_hours = recalc_reg_hours.quantize(Decimal("0.01"))
+    timesheet.overtime_hours = recalc_ot_hours.quantize(Decimal("0.01"))
+    timesheet.night_hours = recalc_night_hours.quantize(Decimal("0.01"))
+    timesheet.vacation_days = recalc_vac_days
+    timesheet.sick_days = recalc_sick_days
+    timesheet.trip_days = recalc_trip_days
+    timesheet.absent_days = recalc_absent_days
+
+    db.commit()
+    db.refresh(timesheet)
+    return record
 
 
 def get_or_generate_timesheet(

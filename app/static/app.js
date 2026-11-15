@@ -99,6 +99,7 @@
     'arrow-left': '<path d="M19 12H5M12 19l-7-7 7-7"/>',
     calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>',
     chart: '<path d="M3 3v18h18M7 15l4-4 3 3 5-6"/>',
+    'log-in': '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>',
     close: '<path d="M18 6 6 18M6 6l12 12"/>'
   };
 
@@ -470,6 +471,7 @@
         title: 'İş Vaxtı və Məzuniyyət',
         items: [
           { type: 'screen', key: 'timesheets', label: 'Tabel (T-13)', icon: 'clock' },
+          { type: 'screen', key: 'attendance', label: 'Turniket və Davamiyyət', icon: 'log-in' },
           { type: 'screen', key: 'leave-requests', label: 'Məzuniyyət sorğuları', icon: 'palmtree' },
           { type: 'screen', key: 'sick-leaves', label: 'Xəstəlik vərəqələri', icon: 'health' },
           { type: 'screen', key: 'production-calendar', label: 'İstehsalat təqvimi', icon: 'calendar-grid' }
@@ -479,6 +481,7 @@
         title: 'Əməkhaqqı və Dövlət',
         items: [
           { type: 'screen', key: 'payroll-runs', label: 'Əməkhaqqı hesablaması', icon: 'wallet' },
+          { type: 'entity', key: 'employee-pay-components', label: 'Fərdi kəsinti və əlavələr', icon: 'percent' },
           { type: 'screen', key: 'compliance', label: 'Dövlət hesabatları', icon: 'report' },
           { type: 'entity', key: 'emas-sync-logs', label: 'ƏMAS logları', icon: 'sync' }
         ]
@@ -813,6 +816,7 @@
       case 'leave-requests': return renderLeaveRequests();
       case 'sick-leaves': return renderSickLeaves();
       case 'timesheets': return renderTimesheets();
+      case 'attendance': return renderAttendance();
       case 'production-calendar': return renderProductionCalendar();
       case 'structure': return renderStructure();
       case 'reports': return renderReports();
@@ -1741,15 +1745,19 @@
     }
 
     var rows = items.map(function (item) {
-      return '<tr><td><span class="strong-link">' + esc(item.employee_name) + '</span><div class="sub">' + esc(item.pin_code || '') + '</div></td>' +
+      return '<tr><td><span class="strong-link" data-act="payroll-item-details" data-id="' + item.id + '" style="cursor:pointer">' + esc(item.employee_name) + '</span><div class="sub">' + esc(item.pin_code || '') + '</div></td>' +
         '<td class="num">' + esc(item.worked_days) + '</td>' +
         '<td class="num">' + esc(fmtMoney(item.gross_total)) + '</td>' +
         '<td class="num">' + esc(fmtMoney(item.income_tax)) + '</td>' +
         '<td class="num">' + esc(fmtMoney(item.dsmf_employee)) + '</td>' +
         '<td class="num">' + esc(fmtMoney(item.its_employee)) + '</td>' +
         '<td class="num">' + esc(fmtMoney(item.unemployment_emp)) + '</td>' +
+        '<td class="num">' + (Number(item.other_deductions) > 0 ? '<span class="badge danger">-' + esc(fmtMoney(item.other_deductions)) + '</span>' : '—') + '</td>' +
         '<td class="num strong">' + esc(fmtMoney(item.net_payable)) + '</td>' +
-        '<td class="actions"><button class="btn sm ghost" type="button" data-act="payslip" data-id="' + item.id + '">PDF</button></td></tr>';
+        '<td class="actions">' +
+        '<button class="btn sm ghost" type="button" data-act="payroll-item-details" data-id="' + item.id + '">Detallar</button>' +
+        '<button class="btn sm ghost" type="button" data-act="payslip" data-id="' + item.id + '">PDF</button>' +
+        '</td></tr>';
     }).join('');
 
     $('#view').innerHTML =
@@ -1764,9 +1772,54 @@
       '<div class="stat-card tone-slate"><span class="stat-icon">' + icon('building') + '</span><span class="stat-copy"><span class="stat-label">İşəgötürən yükü</span><strong class="stat-value">' + esc(fmtMoney(totalEmployer)) + '</strong></span></div>' +
       '</div>' +
       '<div class="card table-card">' +
-      (items.length ? '<div class="table-wrap"><table class="data"><thead><tr><th>İşçi</th><th class="num">Gün</th><th class="num">Bruto</th><th class="num">Gəlir vergisi</th><th class="num">DSMF</th><th class="num">İTS</th><th class="num">İşsizlik</th><th class="num">Net</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      (items.length ? '<div class="table-wrap"><table class="data"><thead><tr><th>İşçi</th><th class="num">Gün</th><th class="num">Bruto</th><th class="num">Gəlir vergisi</th><th class="num">DSMF</th><th class="num">İTS</th><th class="num">İşsizlik</th><th class="num">Kəsintilər</th><th class="num">Net</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
         : emptyState('Sətir yoxdur', 'Hesablama aparıldıqdan sonra işçi sətirləri görünəcək.')) +
       '</div>';
+  }
+
+  async function openPayrollItemBreakdownModal(itemId) {
+    try {
+      var item = await api('/payroll-items/' + itemId);
+      var details = item.details || [];
+      var earnings = details.filter(function (d) { return d.direction === 'EARNING'; });
+      var deductions = details.filter(function (d) { return d.direction === 'DEDUCTION'; });
+
+      var earningsRows = earnings.map(function (d) {
+        return '<div class="breakdown-row"><span class="label">' + esc(d.calc_formula_note || d.component_code) + '</span><span class="val text-success">+' + esc(fmtMoney(d.amount)) + '</span></div>';
+      }).join('');
+
+      var taxRows = '<div class="breakdown-row"><span class="label">Gəlir vergisi (AR VM m. 101/102)</span><span class="val text-danger">-' + esc(fmtMoney(item.income_tax)) + '</span></div>' +
+        '<div class="breakdown-row"><span class="label">DSMF (işçi 3% / 10%)</span><span class="val text-danger">-' + esc(fmtMoney(item.dsmf_employee)) + '</span></div>' +
+        '<div class="breakdown-row"><span class="label">İcbari Tibbi Sığorta (İTS 2%)</span><span class="val text-danger">-' + esc(fmtMoney(item.its_employee)) + '</span></div>' +
+        '<div class="breakdown-row"><span class="label">İşsizlikdən sığorta (0.5%)</span><span class="val text-danger">-' + esc(fmtMoney(item.unemployment_emp)) + '</span></div>';
+
+      var deductionRows = deductions.map(function (d) {
+        return '<div class="breakdown-row"><span class="label">' + esc(d.calc_formula_note || d.component_code) + '</span><span class="val text-danger">-' + esc(fmtMoney(d.amount)) + '</span></div>';
+      }).join('') || '<div class="breakdown-row"><span class="muted">Əlavə fərdi kəsinti yoxdur</span><span class="val">0.00 ₼</span></div>';
+
+      var employerRows = '<div class="breakdown-row"><span class="label">DSMF (işəgötürən 22%)</span><span class="val">' + esc(fmtMoney(item.dsmf_employer)) + '</span></div>' +
+        '<div class="breakdown-row"><span class="label">İcbari Tibbi Sığorta (2%)</span><span class="val">' + esc(fmtMoney(item.its_employer)) + '</span></div>' +
+        '<div class="breakdown-row"><span class="label">İşsizlikdən sığorta (0.5%)</span><span class="val">' + esc(fmtMoney(item.unemployment_org)) + '</span></div>';
+
+      openModal({
+        title: item.employee_name,
+        subtitle: 'Əməkhaqqı Hesablama Vərəqəsi · PIN: ' + esc(item.pin_code || '') + ' · İşlənmiş gün: ' + item.worked_days,
+        size: 'lg',
+        body: '<div class="breakdown-summary-banner">' +
+          '<div class="net-col"><span>Ödəniləcək Xalis Məbləğ (Net)</span><strong>' + esc(fmtMoney(item.net_payable)) + '</strong></div>' +
+          '<div><div style="font-size:12px;opacity:.9">Ümumi Bruto: <strong>' + esc(fmtMoney(item.gross_total)) + '</strong></div>' +
+          '<div style="font-size:12px;opacity:.9">Vergi və tutulmalar cəmi: <strong>-' + esc(fmtMoney(Number(item.income_tax) + Number(item.dsmf_employee) + Number(item.its_employee) + Number(item.unemployment_emp) + Number(item.other_deductions))) + '</strong></div></div>' +
+          '</div>' +
+          '<div class="breakdown-grid">' +
+          '<div class="breakdown-box earnings"><h4>' + icon('coins') + ' Qazanclar (Bruto)</h4>' + (earningsRows || '<div class="muted">Məlumat yoxdur</div>') + '</div>' +
+          '<div class="breakdown-box taxes"><h4>' + icon('receipt') + ' Dövlət Tutulmaları</h4>' + taxRows + '</div>' +
+          '<div class="breakdown-box deductions"><h4>' + icon('alert') + ' Kəsintilər və Cərimələr</h4>' + deductionRows + '</div>' +
+          '<div class="breakdown-box employer"><h4>' + icon('building') + ' İşəgötürən Xərcləri</h4>' + employerRows + '</div>' +
+          '</div>',
+        footer: '<button class="btn ghost" type="button" data-act="modal-close">Bağla</button>' +
+          '<button class="btn primary" type="button" data-act="payslip" data-id="' + item.id + '">' + icon('download') + 'PDF Hesablama vərəqəsi</button>'
+      });
+    } catch (err) { toast(err.message, 'error'); }
   }
 
   async function downloadPayslip(itemId) {
@@ -1961,12 +2014,12 @@
     var period = currentPeriod();
     if (!state.timesheetYear) state.timesheetYear = period.year;
     if (!state.timesheetMonth) state.timesheetMonth = period.month;
-    setHeader('Tabel (T-13)', 'Aylıq iş vaxtı uçotu');
+    if (!state.timesheetMode) state.timesheetMode = 'matrix'; // default to T-13 matrix view
+
+    setHeader('Tabel (T-13)', 'Aylıq iş vaxtı uçotu və turniket davamiyyəti');
     $('#view').innerHTML = loadingHTML('Tabel yüklənir...');
-    await ensureLookups(['employees']);
-    var data = await api('/timesheets?limit=500&year=' + state.timesheetYear + '&month=' + state.timesheetMonth);
-    var normalized = normalizeList(data);
-    var rowsData = normalized.items;
+    await ensureLookups(['employees', 'organizations']);
+
     var yearOptions = '';
     var nowYear = new Date().getFullYear();
     for (var y = nowYear + 1; y >= nowYear - 3; y -= 1) {
@@ -1975,34 +2028,333 @@
     var monthOptions = MONTHS.map(function (name, index) {
       return '<option value="' + (index + 1) + '"' + (Number(state.timesheetMonth) === index + 1 ? ' selected' : '') + '>' + esc(name) + '</option>';
     }).join('');
+
     var canManageTimesheet = canManage('timesheets');
-    var rows = rowsData.map(function (row) {
-      var actions = '';
-      if (canManageTimesheet && row.status === 'OPEN') actions += '<button class="btn sm primary" type="button" data-act="timesheet-approve" data-id="' + row.id + '">Təsdiqlə</button>';
-      if (canManageTimesheet && row.status === 'APPROVED') actions += '<button class="btn sm ghost" type="button" data-act="timesheet-lock" data-id="' + row.id + '">Kilidlə</button>';
-      return '<tr><td>' + esc(refLabel('employees', row.employee_id)) + '</td>' +
-        '<td class="num">' + esc(row.planned_days) + '</td><td class="num">' + esc(row.worked_days) + '</td>' +
-        '<td class="num">' + esc(fmtNumber(row.regular_hours, 1)) + '</td>' +
-        '<td class="num">' + esc(fmtNumber(row.overtime_hours, 1)) + '</td>' +
-        '<td class="num">' + esc(fmtNumber(row.night_hours, 1)) + '</td>' +
-        '<td class="num">' + esc(row.vacation_days) + '</td><td class="num">' + esc(row.sick_days) + '</td>' +
-        '<td>' + badge(row.status) + '</td><td class="actions">' + actions + '</td></tr>';
-    }).join('');
-    $('#view').innerHTML =
-      '<div class="page-toolbar"><form class="filter-row" id="timesheet-filter">' +
+    var isMatrix = state.timesheetMode === 'matrix';
+
+    var toolbarHTML =
+      '<div class="page-toolbar">' +
+      '<form class="filter-row" id="timesheet-filter">' +
       '<select name="year">' + yearOptions + '</select><select name="month">' + monthOptions + '</select>' +
-      '<button class="btn ghost" type="submit">' + icon('refresh') + 'Göstər</button></form>' +
-      '<div class="toolbar-actions">' + (canManageTimesheet ? '<button class="btn primary" type="button" data-act="timesheet-generate">' + icon('calendar') + 'Tabel yarat</button>' : '') + '</div></div>' +
-      '<div class="card table-card">' +
-      (rowsData.length ? '<div class="table-wrap"><table class="data"><thead><tr><th>İşçi</th><th class="num">Plan gün</th><th class="num">İşlənmiş</th><th class="num">Normal saat</th><th class="num">Əlavə</th><th class="num">Gecə</th><th class="num">Məzuniyyət</th><th class="num">Xəstəlik</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
-        : emptyState('Tabel yoxdur', 'Seçilmiş dövr üçün tabel yaradın.')) +
-      '<div class="table-footer"><span>' + normalized.total + ' sətir</span></div></div>';
+      '<button class="btn ghost" type="submit">' + icon('refresh') + 'Göstər</button>' +
+      '</form>' +
+      '<div class="tab-pill-group">' +
+      '<button class="tab-pill' + (isMatrix ? ' active' : '') + '" type="button" data-act="timesheet-mode" data-mode="matrix">' + icon('calendar-grid') + 'T-13 Günbəgün (1-31)</button>' +
+      '<button class="tab-pill' + (!isMatrix ? ' active' : '') + '" type="button" data-act="timesheet-mode" data-mode="summary">' + icon('list') + 'Aylıq İcmal</button>' +
+      '</div>' +
+      '<div class="toolbar-actions">' +
+      (canManageTimesheet ? '<button class="btn ghost" type="button" data-act="turnstile-import">' + icon('download') + 'Turniket İdxal</button>' : '') +
+      (canManageTimesheet ? '<button class="btn ghost" type="button" data-act="turnstile-simulate">' + icon('sync') + 'Turniket Simulyasiyası</button>' : '') +
+      (canManageTimesheet ? '<button class="btn primary" type="button" data-act="timesheet-generate">' + icon('calendar') + 'Tabel yarat</button>' : '') +
+      '</div></div>';
+
+    if (isMatrix) {
+      try {
+        var matrixData = await api('/timesheets/matrix?year=' + state.timesheetYear + '&month=' + state.timesheetMonth);
+        var calDays = matrixData.calendar_days || [];
+        var employees = matrixData.employees || [];
+
+        var dayHeaders = calDays.map(function (d) {
+          var isWeekend = d.weekday === 'Ş' || d.weekday === 'B';
+          return '<th class="t13-day-col' + (isWeekend ? ' weekend' : '') + '" title="' + esc(d.date + ' (' + (d.description || d.weekday) + ')') + '">' +
+            '<div>' + d.day + '</div><div style="font-size:9px;opacity:.7">' + esc(d.weekday) + '</div></th>';
+        }).join('');
+
+        var matrixRows = employees.map(function (emp) {
+          var actions = '';
+          if (canManageTimesheet && emp.status === 'OPEN') actions += '<button class="btn sm primary" type="button" data-act="timesheet-approve" data-id="' + emp.timesheet_id + '">Təsdiqlə</button>';
+          if (canManageTimesheet && emp.status === 'APPROVED') actions += '<button class="btn sm ghost" type="button" data-act="timesheet-lock" data-id="' + emp.timesheet_id + '">Kilidlə</button>';
+          actions += '<button class="btn sm ghost" type="button" data-act="timesheet-daily" data-id="' + emp.timesheet_id + '" title="Gündəlik giriş-çıxış və düzəliş">Detallar</button>';
+
+          var dailyCells = calDays.map(function (d) {
+            var rec = (emp.daily_records || {})[d.date];
+            var isWeekend = d.weekday === 'Ş' || d.weekday === 'B';
+            if (!rec) {
+              return '<td class="' + (isWeekend ? 'weekend' : '') + '">—</td>';
+            }
+            var badgeClass = 't13-badge';
+            if (rec.code === 'İ') badgeClass += ' work';
+            else if (rec.code === 'M') badgeClass += ' leave';
+            else if (rec.code === 'X') badgeClass += ' sick';
+            else if (rec.code === 'EZ') badgeClass += ' trip';
+            else if (rec.code === 'B') badgeClass += ' holiday';
+            else if (rec.code === 'İQ') badgeClass += ' rest';
+            else if (rec.code === 'Q') badgeClass += ' absent';
+
+            if (rec.is_manual_override) badgeClass += ' manual';
+
+            var displayVal = rec.code === 'İ' ? (rec.worked_hours > 0 ? rec.worked_hours : '8') : rec.code;
+            var tooltip = (rec.type_label || '') + (rec.punch_in ? ' | Giriş: ' + rec.punch_in + ' Çıxış: ' + (rec.punch_out || '—') : '') + (rec.late_minutes > 0 ? ' | ⚠️ ' + rec.late_minutes + ' dəq gecikmə' : '') + (rec.notes ? ' | Qeyd: ' + rec.notes : '');
+
+            return '<td class="' + (isWeekend ? 'weekend' : '') + '">' +
+              '<span class="' + badgeClass + '" data-act="timesheet-daily" data-id="' + emp.timesheet_id + '" data-day="' + d.date + '" title="' + esc(tooltip) + '">' +
+              esc(displayVal) + '</span></td>';
+          }).join('');
+
+          return '<tr>' +
+            '<td class="sticky-emp"><span class="strong-link" data-act="timesheet-daily" data-id="' + emp.timesheet_id + '" style="cursor:pointer">' + esc(emp.name) + '</span>' +
+            '<div class="sub">' + esc(emp.position || emp.pin_code || '') + '</div></td>' +
+            dailyCells +
+            '<td class="sticky-total num">' + emp.worked_days + '/' + emp.planned_days + '</td>' +
+            '<td class="sticky-total num">' + fmtNumber(emp.regular_hours, 1) + '</td>' +
+            '<td class="sticky-total num">' + (emp.overtime_hours > 0 ? fmtNumber(emp.overtime_hours, 1) : '—') + '</td>' +
+            '<td class="sticky-total actions">' + actions + '</td>' +
+            '</tr>';
+        }).join('');
+
+        $('#view').innerHTML = toolbarHTML +
+          '<div class="t13-matrix-container">' +
+          (employees.length ?
+            '<table class="t13-table"><thead><tr>' +
+            '<th class="sticky-emp">İşçi / Vəzifə</th>' +
+            dayHeaders +
+            '<th class="sticky-total">İş Günü</th><th class="sticky-total">Normal S.</th><th class="sticky-total">Əlavə S.</th><th class="sticky-total">Əməliyyat</th>' +
+            '</tr></thead><tbody>' + matrixRows + '</tbody></table>'
+            : emptyState('Tabel tapılmadı', 'Seçilmiş ay üçün "Tabel yarat" düyməsini sıxın.')) +
+          '</div>' +
+          '<div style="margin-top:12px;display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted);flex-wrap:wrap">' +
+          '<span><strong>Şərti işarələr:</strong></span>' +
+          '<span><span class="t13-badge work">8</span> İş günü</span>' +
+          '<span><span class="t13-badge leave">M</span> Məzuniyyət</span>' +
+          '<span><span class="t13-badge sick">X</span> Xəstəlik</span>' +
+          '<span><span class="t13-badge trip">EZ</span> Ezamiyyət</span>' +
+          '<span><span class="t13-badge rest">İQ</span> İstirahət</span>' +
+          '<span><span class="t13-badge holiday">B</span> Bayram</span>' +
+          '<span><span class="t13-badge absent">Q</span> Qayıb</span>' +
+          '<span><span class="t13-badge work manual">8</span> Əl ilə təsdiq</span>' +
+          '</div>';
+
+      } catch (err) {
+        toast(err.message, 'error');
+        $('#view').innerHTML = toolbarHTML + errorCard(err.message);
+      }
+    } else {
+      // Summary list mode
+      var data = await api('/timesheets?limit=500&year=' + state.timesheetYear + '&month=' + state.timesheetMonth);
+      var normalized = normalizeList(data);
+      var rowsData = normalized.items;
+      var rows = rowsData.map(function (row) {
+        var actions = '';
+        if (canManageTimesheet && row.status === 'OPEN') actions += '<button class="btn sm primary" type="button" data-act="timesheet-approve" data-id="' + row.id + '">Təsdiqlə</button>';
+        if (canManageTimesheet && row.status === 'APPROVED') actions += '<button class="btn sm ghost" type="button" data-act="timesheet-lock" data-id="' + row.id + '">Kilidlə</button>';
+        actions += '<button class="btn sm ghost" type="button" data-act="timesheet-daily" data-id="' + row.id + '">Detallar</button>';
+        return '<tr><td><span class="strong-link" data-act="timesheet-daily" data-id="' + row.id + '" style="cursor:pointer">' + esc(refLabel('employees', row.employee_id)) + '</span></td>' +
+          '<td class="num">' + esc(row.planned_days) + '</td><td class="num">' + esc(row.worked_days) + '</td>' +
+          '<td class="num">' + esc(fmtNumber(row.regular_hours, 1)) + '</td>' +
+          '<td class="num">' + esc(fmtNumber(row.overtime_hours, 1)) + '</td>' +
+          '<td class="num">' + esc(fmtNumber(row.night_hours, 1)) + '</td>' +
+          '<td class="num">' + esc(row.vacation_days) + '</td><td class="num">' + esc(row.sick_days) + '</td>' +
+          '<td>' + badge(row.status) + '</td><td class="actions">' + actions + '</td></tr>';
+      }).join('');
+
+      $('#view').innerHTML = toolbarHTML +
+        '<div class="card table-card">' +
+        (rowsData.length ? '<div class="table-wrap"><table class="data"><thead><tr><th>İşçi</th><th class="num">Plan gün</th><th class="num">İşlənmiş</th><th class="num">Normal saat</th><th class="num">Əlavə</th><th class="num">Gecə</th><th class="num">Məzuniyyət</th><th class="num">Xəstəlik</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+          : emptyState('Tabel yoxdur', 'Seçilmiş dövr üçün tabel yaradın.')) +
+        '<div class="table-footer"><span>' + normalized.total + ' sətir</span></div></div>';
+    }
+
     $('#timesheet-filter').addEventListener('submit', function (event) {
       event.preventDefault();
       state.timesheetYear = Number(event.target.elements.year.value);
       state.timesheetMonth = Number(event.target.elements.month.value);
       renderTimesheets().catch(function (err) { toast(err.message, 'error'); });
     });
+  }
+
+  async function openEmployeeDailyAttendanceModal(timesheetId, highlightDay) {
+    try {
+      var data = await api('/timesheets/' + timesheetId + '/daily');
+      var dailyMap = data.daily_records || {};
+      var daysList = Object.keys(dailyMap).sort().map(function (k) { return dailyMap[k]; });
+
+      var totalLateMins = daysList.reduce(function (sum, d) { return sum + (Number(d.late_minutes) || 0); }, 0);
+      var canManageTimesheet = canManage('timesheets');
+
+      var dayRows = daysList.map(function (d) {
+        var isHighlighted = highlightDay && d.date === highlightDay;
+        var lateBadge = d.late_minutes > 0 ? '<span class="badge warning" title="Gecikmə">⚠️ +' + d.late_minutes + ' dəq</span>' : '—';
+        var overrideBadge = d.is_manual_override ? '<span class="badge neutral" title="Əl ilə redaktə edilib">✏️ Əl ilə</span>' : '';
+        var statusBadge = '<span class="t13-badge ' + (d.code === 'İ' ? 'work' : (d.code === 'M' ? 'leave' : (d.code === 'X' ? 'sick' : (d.code === 'EZ' ? 'trip' : (d.code === 'B' ? 'holiday' : 'rest'))))) + '">' + esc(d.code) + '</span>';
+
+        var editBtn = canManageTimesheet ?
+          '<button class="btn sm ghost" type="button" data-act="daily-override-prompt" data-sheet="' + timesheetId + '" data-day="' + d.date + '" data-hours="' + d.worked_hours + '" data-code="' + d.code + '" data-notes="' + esc(d.notes || '') + '">Düzəliş</button>' : '';
+
+        return '<tr' + (isHighlighted ? ' style="background:#fef3c7"' : '') + '>' +
+          '<td><strong>' + esc(d.date) + '</strong> <span class="muted">(' + esc(d.weekday) + ')</span></td>' +
+          '<td>' + statusBadge + ' ' + esc(d.type_label || '') + '</td>' +
+          '<td class="num mono">' + (d.punch_in ? '<span style="color:#059669">● ' + esc(d.punch_in) + '</span>' : '<span class="muted">—</span>') + '</td>' +
+          '<td class="num mono">' + (d.punch_out ? '<span style="color:#2563eb">● ' + esc(d.punch_out) + '</span>' : '<span class="muted">—</span>') + '</td>' +
+          '<td class="num">' + lateBadge + '</td>' +
+          '<td class="num strong">' + esc(fmtNumber(d.worked_hours, 1)) + 's</td>' +
+          '<td>' + (d.notes ? '<span class="sub" style="color:var(--text)">' + esc(d.notes) + '</span> ' : '') + overrideBadge + '</td>' +
+          '<td class="actions">' + editBtn + '</td>' +
+          '</tr>';
+      }).join('');
+
+      openModal({
+        title: data.employee_name + ' · Gündəlik Davamiyyət Kartı',
+        subtitle: data.year + ' ' + MONTHS[data.month - 1] + ' · PIN: ' + esc(data.pin_code || '') + ' · Status: ' + data.status,
+        size: 'lg',
+        body: '<div class="stat-grid compact mb-16">' +
+          '<div class="stat-card tone-blue"><span class="stat-icon">' + icon('clock') + '</span><span class="stat-copy"><span class="stat-label">İşlənmiş Saat</span><strong class="stat-value">' + fmtNumber(data.regular_hours, 1) + 's</strong></span></div>' +
+          '<div class="stat-card tone-teal"><span class="stat-icon">' + icon('check') + '</span><span class="stat-copy"><span class="stat-label">İşlənmiş Gün</span><strong class="stat-value">' + data.worked_days + '/' + data.planned_days + '</strong></span></div>' +
+          '<div class="stat-card tone-amber"><span class="stat-icon">' + icon('alert') + '</span><span class="stat-copy"><span class="stat-label">Cəmi Gecikmə</span><strong class="stat-value">' + (totalLateMins > 0 ? totalLateMins + ' dəq' : '0') + '</strong></span></div>' +
+          '</div>' +
+          '<div class="table-wrap" style="max-height:420px;overflow-y:auto"><table class="data"><thead><tr>' +
+          '<th>Tarix</th><th>Status</th><th class="num">Giriş (IN)</th><th class="num">Çıxış (OUT)</th><th class="num">Gecikmə</th><th class="num">Faktiki saat</th><th>Qeyd</th><th></th>' +
+          '</tr></thead><tbody>' + dayRows + '</tbody></table></div>',
+        footer: '<button class="btn ghost" type="button" data-act="modal-close">Bağla</button>'
+      });
+    } catch (err) { toast(err.message, 'error'); }
+  }
+
+  async function openDailyOverrideModal(timesheetId, dayStr, currentHours, currentCode, currentNotes) {
+    openModal({
+      title: 'Günün saatına düzəliş et',
+      subtitle: dayStr + ' tarixi üçün təsdiq',
+      body: '<form id="daily-override-form" class="form-grid">' +
+        '<label class="field"><span>İşlənmiş saat <span class="req">*</span></span>' +
+        '<input type="number" step="0.5" min="0" max="24" name="worked_hours" value="' + (currentHours || 8) + '" required></label>' +
+        '<label class="field"><span>Status kodu <span class="req">*</span></span>' +
+        '<select name="code">' +
+        '<option value="İ"' + (currentCode === 'İ' ? ' selected' : '') + '>İ · İş günü</option>' +
+        '<option value="M"' + (currentCode === 'M' ? ' selected' : '') + '>M · Məzuniyyət</option>' +
+        '<option value="X"' + (currentCode === 'X' ? ' selected' : '') + '>X · Xəstəlik</option>' +
+        '<option value="EZ"' + (currentCode === 'EZ' ? ' selected' : '') + '>EZ · Ezamiyyət</option>' +
+        '<option value="Q"' + (currentCode === 'Q' ? ' selected' : '') + '>Q · Qayıb</option>' +
+        '<option value="İQ"' + (currentCode === 'İQ' ? ' selected' : '') + '>İQ · İstirahət</option>' +
+        '</select></label>' +
+        '<label class="field span-2"><span>Səbəb / İzah qeydi</span>' +
+        '<input type="text" name="notes" placeholder="Məs: Kartı evdə unudub, icazəli olub" value="' + esc(currentNotes || '') + '"></label>' +
+        '</form>',
+      footer: '<button class="btn ghost" type="button" data-act="modal-close">İmtina</button>' +
+        '<button class="btn primary" type="submit" form="daily-override-form">' + icon('check') + 'Yadda saxla</button>'
+    });
+
+    $('#daily-override-form').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var form = event.target;
+      try {
+        await api('/timesheets/' + timesheetId + '/daily-override', {
+          method: 'POST',
+          body: JSON.stringify({
+            day: dayStr,
+            worked_hours: Number(form.elements.worked_hours.value),
+            code: form.elements.code.value,
+            notes: form.elements.notes.value
+          })
+        });
+        toast('Günün məlumatı yeniləndi', 'success');
+        closeModal();
+        await renderTimesheets();
+        await openEmployeeDailyAttendanceModal(timesheetId, dayStr);
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  }
+
+  async function simulateTurnstileAction() {
+    if (!window.confirm(state.timesheetYear + ' / ' + MONTHS[state.timesheetMonth - 1] + ' dövrü üçün bütün aktiv işçilərə avtomatik turniket giriş-çıxış vuruşları (punch logs) yaradılsın?')) return;
+    try {
+      var res = await api('/attendance/simulate-turnstile?year=' + state.timesheetYear + '&month=' + state.timesheetMonth, { method: 'POST' });
+      toast(res.message, 'success');
+      await renderTimesheets();
+    } catch (err) { toast(err.message, 'error'); }
+  }
+
+  async function openTurnstileImportModal() {
+    openModal({
+      title: 'Turniket loqlarını idxal et (CSV)',
+      subtitle: 'Turniket cihazından ixrac edilmiş fayl və ya mətn',
+      size: 'lg',
+      body: '<form id="turnstile-import-form" class="form-grid">' +
+        '<div class="span-2" style="font-size:12px;color:var(--muted);background:var(--surface-2);padding:10px;border-radius:8px">' +
+        '<strong>Tələb olunan CSV formatı:</strong> <code>pin_code,punch_time,direction,device_id</code><br>' +
+        'Nümunə:<br><code>1234567,2026-11-15 08:52:00,IN,TURNSTILE-01</code><br><code>1234567,2026-11-15 18:05:00,OUT,TURNSTILE-02</code>' +
+        '</div>' +
+        '<label class="field span-2"><span>CSV Mətni <span class="req">*</span></span>' +
+        '<textarea name="csv_text" rows="8" style="font-family:var(--font-mono);font-size:12px" required placeholder="pin_code,punch_time,direction,device_id&#10;1234567,2026-11-15 08:55:00,IN,GATE-01"></textarea></label>' +
+        '</form>',
+      footer: '<button class="btn ghost" type="button" data-act="modal-close">İmtina</button>' +
+        '<button class="btn primary" type="submit" form="turnstile-import-form">' + icon('download') + 'İdxal et</button>'
+    });
+
+    $('#turnstile-import-form').addEventListener('submit', async function (event) {
+      event.preventDefault();
+      var form = event.target;
+      try {
+        var res = await api('/attendance/import-csv', {
+          method: 'POST',
+          body: JSON.stringify({ csv_text: form.elements.csv_text.value })
+        });
+        closeModal();
+        toast(res.message, 'success');
+        await renderTimesheets();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  }
+
+  async function renderAttendance() {
+    setHeader('Turniket və Davamiyyət', 'Biometrik / Kart turniket loqları və canlı monitorinq');
+    $('#view').innerHTML = loadingHTML('Turniket məlumatları yüklənir...');
+    await ensureLookups(['employees']);
+
+    try {
+      var results = await Promise.all([
+        api('/attendance/today-summary'),
+        api('/attendance?limit=100')
+      ]);
+      var summary = results[0];
+      var logs = normalizeList(results[1]).items;
+
+      var canManageTimesheet = canManage('timesheets');
+      var actions = '';
+      if (canManageTimesheet) {
+        actions += '<button class="btn ghost" type="button" data-act="turnstile-import">' + icon('download') + 'Turniket CSV İdxal</button>';
+        actions += '<button class="btn primary" type="button" data-act="turnstile-simulate">' + icon('sync') + 'Turniket Simulyasiyası</button>';
+      }
+
+      var employeeRows = (summary.employees || []).map(function (emp) {
+        var statusBadge = emp.is_inside ? '<span class="badge success">● Ofisdədir (Giriş)</span>' : (emp.first_in ? '<span class="badge neutral">Çıxıb</span>' : '<span class="badge danger">Gəlməyib</span>');
+        var lateBadge = emp.is_late ? '<span class="badge warning">⚠️ +' + emp.late_minutes + ' dəq</span>' : (emp.first_in ? '<span class="badge success">Vaxtında</span>' : '—');
+        return '<tr>' +
+          '<td><strong>' + esc(emp.name) + '</strong><div class="sub">' + esc(emp.pin_code || '') + '</div></td>' +
+          '<td class="num mono">' + (emp.first_in ? esc(emp.first_in) : '—') + '</td>' +
+          '<td class="num mono">' + (emp.last_out ? esc(emp.last_out) : '—') + '</td>' +
+          '<td class="num">' + lateBadge + '</td>' +
+          '<td>' + statusBadge + '</td>' +
+          '</tr>';
+      }).join('');
+
+      var logRows = logs.slice(0, 50).map(function (log) {
+        var dirBadge = log.direction === 'IN' ? '<span class="badge success">GİRİŞ (IN)</span>' : '<span class="badge info">ÇIXIŞ (OUT)</span>';
+        return '<tr>' +
+          '<td class="mono">' + fmtDateTime(log.punch_time) + '</td>' +
+          '<td>' + esc(refLabel('employees', log.employee_id)) + '</td>' +
+          '<td>' + dirBadge + '</td>' +
+          '<td class="sub">' + esc(log.device_id || 'TURNIKET') + '</td>' +
+          '<td>' + (log.is_manual ? '<span class="badge neutral">Əl ilə</span>' : '<span class="badge success">Cihaz</span>') + '</td>' +
+          '</tr>';
+      }).join('');
+
+      $('#view').innerHTML =
+        '<div class="page-toolbar">' +
+        '<div class="toolbar-info"><span class="badge info">Bugün: ' + esc(summary.date) + '</span></div>' +
+        '<div class="toolbar-actions">' + actions + '</div></div>' +
+        '<div class="stat-grid compact mb-16">' +
+        '<div class="stat-card tone-teal"><span class="stat-icon">' + icon('users') + '</span><span class="stat-copy"><span class="stat-label">Cəmi İşçi</span><strong class="stat-value">' + summary.total_employees + '</strong></span></div>' +
+        '<div class="stat-card tone-blue"><span class="stat-icon">' + icon('check') + '</span><span class="stat-copy"><span class="stat-label">Gələnlər</span><strong class="stat-value">' + summary.present_count + '</strong></span></div>' +
+        '<div class="stat-card tone-amber"><span class="stat-icon">' + icon('alert') + '</span><span class="stat-copy"><span class="stat-label">Gecikənlər</span><strong class="stat-value">' + summary.late_count + '</strong></span></div>' +
+        '<div class="stat-card tone-slate"><span class="stat-icon">' + icon('close') + '</span><span class="stat-copy"><span class="stat-label">Gəlməyənlər</span><strong class="stat-value">' + summary.absent_count + '</strong></span></div>' +
+        '</div>' +
+        '<div class="grid grid-2 gap-16">' +
+        '<div class="card table-card"><header class="card-head"><h3>Bugünkü Davamiyyət Monitorinqi</h3></header>' +
+        '<div class="table-wrap"><table class="data"><thead><tr><th>İşçi</th><th class="num">İlk Giriş</th><th class="num">Son Çıxış</th><th class="num">Gecikmə</th><th>Status</th></tr></thead><tbody>' + (employeeRows || '<tr><td colspan="5" class="text-center">Məlumat yoxdur</td></tr>') + '</tbody></table></div></div>' +
+        '<div class="card table-card"><header class="card-head"><h3>Son Turniket Vuruşları (Punch Logs)</h3></header>' +
+        '<div class="table-wrap"><table class="data"><thead><tr><th>Tarix / Vaxt</th><th>İşçi</th><th>İstiqamət</th><th>Cihaz</th><th>Mənbə</th></tr></thead><tbody>' + (logRows || '<tr><td colspan="5" class="text-center">Loq tapılmadı</td></tr>') + '</tbody></table></div></div>' +
+        '</div>';
+
+    } catch (err) { toast(err.message, 'error'); }
   }
 
   async function openTimesheetGenerate() {
@@ -3136,6 +3488,31 @@
           return;
         case 'timesheet-lock':
           await timesheetAction(id, 'lock');
+          return;
+        case 'timesheet-mode':
+          state.timesheetMode = trigger.getAttribute('data-mode');
+          await renderTimesheets();
+          return;
+        case 'timesheet-daily':
+          await openEmployeeDailyAttendanceModal(id, trigger.getAttribute('data-day'));
+          return;
+        case 'daily-override-prompt':
+          await openDailyOverrideModal(
+            trigger.getAttribute('data-sheet'),
+            trigger.getAttribute('data-day'),
+            trigger.getAttribute('data-hours'),
+            trigger.getAttribute('data-code'),
+            trigger.getAttribute('data-notes')
+          );
+          return;
+        case 'turnstile-simulate':
+          await simulateTurnstileAction();
+          return;
+        case 'turnstile-import':
+          await openTurnstileImportModal();
+          return;
+        case 'payroll-item-details':
+          await openPayrollItemBreakdownModal(id);
           return;
         case 'approvals-refresh':
           await renderApprovals();

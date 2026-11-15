@@ -38,6 +38,12 @@ def init_db() -> None:
                 "INTEGER NOT NULL DEFAULT 0"
             )
         )
+        conn.execute(
+            text(
+                "ALTER TABLE timesheets ADD COLUMN IF NOT EXISTS daily_records_json "
+                "JSONB NOT NULL DEFAULT '{}'::jsonb"
+            )
+        )
 
     ddl = """
     DO $$
