@@ -25,6 +25,9 @@ restart:
 test:
 	.venv/bin/pytest -v
 
+push:
+	./scripts/push.sh
+
 logs:
 	docker compose logs -f
 
