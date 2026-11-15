@@ -285,9 +285,10 @@ def ess_reference_pdf(
 ):
     employee = _employee(user, db)
     pdf = generate_employment_reference_pdf(db, employee.id, purpose=purpose)
+    safe_pin = "".join(c for c in str(employee.pin_code or employee.id) if c.isascii() and (c.isalnum() or c in ("-", "_")))
     return Response(
         content=pdf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="arayis-{employee.pin_code}.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="arayis-{safe_pin or employee.id}.pdf"'},
     )
 

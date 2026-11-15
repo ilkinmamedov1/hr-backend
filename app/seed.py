@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import hash_password
-from app.models.contract import EmploymentContract
+from app.models.contract import EmploymentContract, HrOrder
 from app.models.employee import Employee, EmployeeDocument
 from app.models.leave import LeaveRequest, LeaveType
 from app.models.organization import Department, Organization, Position, StaffingTable
@@ -571,7 +571,58 @@ def seed_demo(db: Session) -> None:
         notes="Cari ay - hesablamaq üçün /calculate çağırın",
     )
     db.add(current_run)
+
+    if db.scalar(select(func.count(HrOrder.id))) == 0:
+        db.add(
+            HrOrder(
+                organization_id=organization.id,
+                order_number="ƏMR-2026/01",
+                order_type="HIRE",
+                employee_id=employees[0].id,
+                labor_code_article="AR ƏM m. 73",
+                order_date=today - timedelta(days=60),
+                effective_date=today - timedelta(days=60),
+                status="APPROVED",
+                payload_json={"position": "Kadrlar üzrə menecer", "salary": 2500},
+            )
+        )
+        db.add(
+            HrOrder(
+                organization_id=organization.id,
+                order_number="ƏMR-2026/02",
+                order_type="LEAVE",
+                employee_id=employees[1].id,
+                labor_code_article="AR ƏM m. 113",
+                order_date=today - timedelta(days=15),
+                effective_date=today - timedelta(days=15),
+                status="APPROVED",
+                payload_json={"leave_type": "ANNUAL", "days": 14},
+            )
+        )
+
     db.commit()
+
+
+def _ensure_demo_orders(db: Session) -> None:
+    if db.scalar(select(func.count(HrOrder.id))) == 0:
+        org = db.scalar(select(Organization).order_by(Organization.id))
+        emp = db.scalar(select(Employee).order_by(Employee.id))
+        if org and emp:
+            today = date.today()
+            db.add(
+                HrOrder(
+                    organization_id=org.id,
+                    order_number="ƏMR-2026/01",
+                    order_type="HIRE",
+                    employee_id=emp.id,
+                    labor_code_article="AR ƏM m. 73",
+                    order_date=today - timedelta(days=60),
+                    effective_date=today - timedelta(days=60),
+                    status="APPROVED",
+                    payload_json={"position": "Kadrlar üzrə menecer", "salary": 2500},
+                )
+            )
+            db.commit()
 
 
 def seed_all(db: Session) -> None:
@@ -579,6 +630,7 @@ def seed_all(db: Session) -> None:
     _ensure_calendar(db, {date.today().year - 1, date.today().year, date.today().year + 1})
     if settings.SEED_DEMO:
         seed_demo(db)
+        _ensure_demo_orders(db)
     else:
         if db.scalar(select(func.count(Organization.id))) == 0:
             organization = Organization(

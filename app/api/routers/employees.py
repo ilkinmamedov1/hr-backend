@@ -174,10 +174,11 @@ def employee_reference_pdf(
     if user.role != Role.SUPERADMIN.value and user.organization_id != employee.organization_id:
         raise HTTPException(status_code=404, detail="İşçi tapılmadı")
     pdf = generate_employment_reference_pdf(db, employee_id, purpose=purpose)
+    safe_pin = "".join(c for c in str(employee.pin_code or employee.id) if c.isascii() and (c.isalnum() or c in ("-", "_")))
     return Response(
         content=pdf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="arayis-{employee.pin_code}.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="arayis-{safe_pin or employee.id}.pdf"'},
     )
 
 

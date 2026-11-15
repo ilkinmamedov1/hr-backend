@@ -287,10 +287,12 @@ def hr_order_pdf(
         raise HTTPException(status_code=404, detail="Əmr tapılmadı")
     _ensure_org(user, order.organization_id)
     pdf = generate_hr_order_pdf(db, order_id)
+    safe_num = "".join(c for c in str(order.order_number) if c.isascii() and (c.isalnum() or c in ("-", "_")))
+    filename = f"emr-{safe_num or order.id}.pdf"
     return Response(
         content=pdf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="emr-{order.order_number}.pdf"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
