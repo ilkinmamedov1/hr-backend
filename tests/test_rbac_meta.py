@@ -66,8 +66,9 @@ def test_admin_sees_every_entity_and_screen(client):
     assert len(data["entities"]) == len(ENTITY_DEFS)
     assert {screen["key"] for screen in data["screens"]} == {
         "dashboard", "structure", "payroll-runs", "leave-requests", "sick-leaves",
-        "timesheets", "production-calendar", "reports", "compliance", "recruitment",
-        "onboarding", "approvals", "mss", "users", "audit", "ess",
+        "timesheets", "attendance", "work-schedules", "production-calendar", "reports",
+        "compliance", "recruitment", "onboarding", "approvals", "mss", "users",
+        "audit", "system-settings", "ess",
     }
     employees = next(entity for entity in data["entities"] if entity["key"] == "employees")
     assert "HR_SPECIALIST" in employees["permissions"]["write_roles"]

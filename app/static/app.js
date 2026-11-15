@@ -472,6 +472,7 @@
         items: [
           { type: 'screen', key: 'timesheets', label: 'Tabel (T-13)', icon: 'clock' },
           { type: 'screen', key: 'attendance', label: 'Turniket və Davamiyyət', icon: 'log-in' },
+          { type: 'screen', key: 'work-schedules', label: 'İş qrafikləri (Növbəli)', icon: 'calendar-grid' },
           { type: 'screen', key: 'leave-requests', label: 'Məzuniyyət sorğuları', icon: 'palmtree' },
           { type: 'screen', key: 'sick-leaves', label: 'Xəstəlik vərəqələri', icon: 'health' },
           { type: 'screen', key: 'production-calendar', label: 'İstehsalat təqvimi', icon: 'calendar-grid' }
@@ -500,7 +501,8 @@
         items: [
           { type: 'screen', key: 'ess', label: 'Şəxsi kabinet (ESS)', icon: 'user' },
           { type: 'screen', key: 'users', label: 'İstifadəçilər', icon: 'shield' },
-          { type: 'screen', key: 'audit', label: 'Audit jurnalı', icon: 'list' }
+          { type: 'screen', key: 'audit', label: 'Audit jurnalı', icon: 'list' },
+          { type: 'screen', key: 'system-settings', label: 'Sistem və Demo İdarəsi', icon: 'settings' }
         ]
       }
     ];
@@ -672,6 +674,11 @@
       if (topbarActions) {
         topbarActions.classList.toggle('hidden', !isHrWriter());
       }
+      var userBox = $('.user-box');
+      if (userBox) {
+        userBox.setAttribute('data-act', 'user-profile-dialog');
+        userBox.setAttribute('title', 'İstifadəçi Profili və Sazlamalar');
+      }
     }
     $('#today-label').textContent = todayLabel();
     buildSidebar();
@@ -817,6 +824,7 @@
       case 'sick-leaves': return renderSickLeaves();
       case 'timesheets': return renderTimesheets();
       case 'attendance': return renderAttendance();
+      case 'work-schedules': return renderWorkSchedules();
       case 'production-calendar': return renderProductionCalendar();
       case 'structure': return renderStructure();
       case 'reports': return renderReports();
@@ -827,6 +835,7 @@
       case 'mss': return renderMss();
       case 'users': return renderUsers();
       case 'audit': return renderAudit();
+      case 'system-settings': return renderSystemSettings();
       case 'ess': return renderEss();
       default:
         setHeader('Səhifə tapılmadı', '');
@@ -2357,6 +2366,413 @@
     } catch (err) { toast(err.message, 'error'); }
   }
 
+  async function renderWorkSchedules() {
+    setHeader('İş Qrafikləri və Növbəlilik İdarəsi', 'Növbəli iş rejimləri (2 növbəli, 3 növbəli, 12 və 24 saatlıq), rotasiya və təyinatlar');
+    $('#view').innerHTML = loadingHTML('İş qrafikləri yüklənir...');
+    await ensureLookups(['organizations', 'employees']);
+
+    try {
+      var schedules = await api('/work-schedules/overview');
+      var canManageSchedules = canManage('work-schedules') || isHrWriter();
+
+      var shiftCount = schedules.filter(function (s) { return s.schedule_type.indexOf('SHIFT_') === 0; }).length;
+      var standardCount = schedules.length - shiftCount;
+      var totalAssigned = schedules.reduce(function (sum, s) { return sum + (s.assigned_count || 0); }, 0);
+
+      var scheduleCards = schedules.map(function (s) {
+        var typeLabels = {
+          SHIFT_3: '3 Növbəli (8 saat)',
+          SHIFT_12: '12 Saatlıq Növbə',
+          SHIFT_24: '24 Saatlıq Sutkalıq',
+          SHIFT_2: '2 Növbəli',
+          STANDARD_5: 'Standart 5 Günlük',
+          STANDARD_6: 'Standart 6 Günlük',
+          CUSTOM: 'Fərdi Qrafik'
+        };
+        var typeTones = {
+          SHIFT_3: 'info',
+          SHIFT_12: 'warning',
+          SHIFT_24: 'danger',
+          SHIFT_2: 'info',
+          STANDARD_5: 'success',
+          STANDARD_6: 'success',
+          CUSTOM: 'neutral'
+        };
+        var typeLabel = typeLabels[s.schedule_type] || s.schedule_type;
+        var tone = typeTones[s.schedule_type] || 'neutral';
+
+        var shiftsHtml = (s.shifts || []).map(function (sh) {
+          var nightBadge = sh.night_hours ? ' <span class="badge warning" style="font-size:10px;padding:1px 5px">Gecə: ' + sh.night_hours + 's</span>' : '';
+          var breakInfo = sh.break_minutes ? ' (' + sh.break_minutes + ' dəq fasilə)' : '';
+          return '<div class="shift-chip">' +
+            '<span class="shift-chip-name">' + esc(sh.name) + breakInfo + '</span>' +
+            '<div style="display:flex;align-items:center;gap:6px">' +
+            nightBadge +
+            '<span class="shift-chip-hours">' + esc(sh.start) + ' - ' + esc(sh.end) + '</span>' +
+            '</div></div>';
+        }).join('');
+
+        if (!shiftsHtml) {
+          shiftsHtml = '<div class="sub">Standart qrafik qaydaları tətbiq olunur</div>';
+        }
+
+        var actions = '';
+        if (canManageSchedules) {
+          actions += '<button class="btn sm primary" type="button" data-act="work-schedule-assign" data-id="' + s.id + '" data-name="' + esc(s.name) + '">' + icon('users') + 'İşçiləri Təyin Et</button>';
+          actions += '<button class="btn sm ghost" type="button" data-act="work-schedule-edit" data-id="' + s.id + '">' + icon('edit') + 'Düzəliş</button>';
+          if (!s.is_default) {
+            actions += '<button class="btn sm ghost danger" type="button" data-act="work-schedule-delete" data-id="' + s.id + '" title="Qrafiki sil">' + icon('trash') + '</button>';
+          }
+        }
+
+        return '<div class="schedule-card">' +
+          '<div class="schedule-card-head">' +
+            '<div>' +
+              '<div class="schedule-card-title">' + esc(s.name) + '</div>' +
+              '<div class="schedule-card-badges">' +
+                badge(typeLabel, tone) +
+                (s.is_default ? '<span class="badge success">★ Əsas Qrafik</span>' : '') +
+                '<span class="badge neutral">⏱ ' + s.weekly_hours + ' saat/həftə</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="schedule-card-body">' +
+            (s.rotation_pattern ? '<div style="font-size:12px;color:var(--text-soft)"><strong>Rotasiya:</strong> ' + esc(s.rotation_pattern) + '</div>' : '') +
+            '<div class="shift-chips-list">' + shiftsHtml + '</div>' +
+            '<div class="sub" style="margin-top:6px">👥 <strong>' + s.assigned_count + '</strong> işçi təyin edilib</div>' +
+          '</div>' +
+          '<div class="schedule-card-foot">' + actions + '</div>' +
+        '</div>';
+      }).join('');
+
+      var toolbarActions = '';
+      if (canManageSchedules) {
+        toolbarActions += '<button class="btn ghost" type="button" data-act="work-schedule-preset">' + icon('sync') + '⚡ Şablonlardan Seç</button>';
+        toolbarActions += '<button class="btn primary" type="button" data-act="work-schedule-new">' + icon('plus') + 'Yeni İş Qrafiki</button>';
+      }
+
+      $('#view').innerHTML =
+        '<div class="page-toolbar">' +
+          '<div class="toolbar-info"><span class="badge info">Cəmi: ' + schedules.length + ' iş qrafiki</span></div>' +
+          '<div class="toolbar-actions">' + toolbarActions + '</div>' +
+        '</div>' +
+        '<div class="stat-grid compact mb-16">' +
+          '<div class="stat-card tone-teal"><span class="stat-icon">' + icon('calendar-grid') + '</span><span class="stat-copy"><span class="stat-label">Cəmi Qrafik</span><strong class="stat-value">' + schedules.length + '</strong></span></div>' +
+          '<div class="stat-card tone-blue"><span class="stat-icon">' + icon('clock') + '</span><span class="stat-copy"><span class="stat-label">Növbəli Rejimlər</span><strong class="stat-value">' + shiftCount + '</strong></span></div>' +
+          '<div class="stat-card tone-slate"><span class="stat-icon">' + icon('grid') + '</span><span class="stat-copy"><span class="stat-label">Standart Qrafiklər</span><strong class="stat-value">' + standardCount + '</strong></span></div>' +
+          '<div class="stat-card tone-violet"><span class="stat-icon">' + icon('users') + '</span><span class="stat-copy"><span class="stat-label">Qrafikdəki İşçilər</span><strong class="stat-value">' + totalAssigned + '</strong></span></div>' +
+        '</div>' +
+        '<div class="schedule-cards-grid">' +
+          (scheduleCards || emptyState('İş qrafiki tapılmadı', 'Yuxarıdakı düymələrlə yeni qrafik yarada və ya standart şablonlardan əlavə edə bilərsiniz.')) +
+        '</div>';
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function openWorkScheduleModal(id) {
+    await ensureLookups(['organizations']);
+    var schedule = null;
+    if (id) {
+      schedule = await api('/work-schedules/' + id);
+    }
+    var rules = (schedule && schedule.shift_rules_json) || {};
+    var shifts = rules.shifts || [
+      { name: '1-ci Növbə', start: '08:00', end: '16:00', break_minutes: 60, night_hours: 0 }
+    ];
+
+    var orgs = state.lookups.organizations || [];
+    var orgOptions = orgs.map(function (o) {
+      var sel = schedule ? equals(schedule.organization_id, o.id) : (state.user && equals(state.user.organization_id, o.id));
+      return '<option value="' + o.id + '"' + (sel ? ' selected' : '') + '>' + esc(o.name) + '</option>';
+    }).join('');
+
+    var types = [
+      { value: 'SHIFT_3', label: '3 Növbəli Fasiləsiz İstehsalat (8 saatlıq)' },
+      { value: 'SHIFT_12', label: '12 Saatlıq Növbə (Gündüz / Gecə)' },
+      { value: 'SHIFT_24', label: '24 Saatlıq Sutkalıq Növbə (1 gün iş / 3 gün ev)' },
+      { value: 'SHIFT_2', label: '2 Növbəli İstehsalat / Satış (Səhər / Axşam)' },
+      { value: 'STANDARD_5', label: 'Standart 5 Günlük İş Həftəsi (40 saat)' },
+      { value: 'STANDARD_6', label: 'Standart 6 Günlük İş Həftəsi (40 saat)' },
+      { value: 'CUSTOM', label: 'Xüsusi / Fərdi Qrafik' }
+    ];
+
+    var typeOptions = types.map(function (t) {
+      var sel = schedule && schedule.schedule_type === t.value;
+      return '<option value="' + t.value + '"' + (sel ? ' selected' : '') + '>' + esc(t.label) + '</option>';
+    }).join('');
+
+    function renderShiftRows(shiftsList) {
+      return shiftsList.map(function (sh, idx) {
+        return '<tr data-shift-row="' + idx + '">' +
+          '<td><input type="text" class="shift-inp-name" value="' + esc(sh.name || '') + '" placeholder="Növbə adı" required></td>' +
+          '<td><input type="time" class="shift-inp-start" value="' + esc(sh.start || '08:00') + '" required></td>' +
+          '<td><input type="time" class="shift-inp-end" value="' + esc(sh.end || '16:00') + '" required></td>' +
+          '<td><input type="number" class="shift-inp-break" value="' + (sh.break_minutes != null ? sh.break_minutes : 60) + '" min="0" max="300" style="width:70px"></td>' +
+          '<td><input type="number" class="shift-inp-night" value="' + (sh.night_hours != null ? sh.night_hours : 0) + '" min="0" max="24" step="0.5" style="width:70px"></td>' +
+          '<td><button type="button" class="btn sm ghost danger shift-btn-del" title="Sil">×</button></td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    openModal({
+      title: schedule ? 'İş Qrafikini Redaktə Et' : 'Yeni İş Qrafiki',
+      subtitle: 'Növbə saatları, fasilələr və rotasiya qaydaları',
+      size: 'large',
+      body: '<form id="work-schedule-form" class="form-grid">' +
+        '<label class="field span-2"><span>Təşkilat <span class="req">*</span></span><select name="organization_id" required>' + orgOptions + '</select></label>' +
+        '<label class="field span-2"><span>Qrafikin Adı <span class="req">*</span></span><input type="text" name="name" value="' + esc(schedule ? schedule.name : '') + '" placeholder="məs: 3 Növbəli İstehsalat Qrafiki" required></label>' +
+        '<label class="field"><span>Qrafik Tipi <span class="req">*</span></span><select name="schedule_type">' + typeOptions + '</select></label>' +
+        '<label class="field"><span>Həftəlik Norma Saatı <span class="req">*</span></span><input type="number" name="weekly_hours" value="' + (schedule ? schedule.weekly_hours : 40) + '" step="0.5" min="1" max="168" required></label>' +
+        '<label class="field span-2"><span>Rotasiya Qaydası / Təsviri</span><input type="text" name="rotation_pattern" value="' + esc(rules.rotation_pattern || '') + '" placeholder="məs: Həftəlik rotasiya (Səhər -> Axşam -> Gecə -> İstirahət)"></label>' +
+        '<div class="field span-2 check"><input type="checkbox" name="is_default"' + (schedule && schedule.is_default ? ' checked' : '') + '><span>Təşkilat üzrə əsas (default) qrafik kimi təyin edilsin</span></div>' +
+        '<div class="span-2" style="margin-top:10px">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
+            '<strong>Növbələr və İş Saatları</strong>' +
+            '<button type="button" class="btn sm ghost" id="btn-add-shift">' + icon('plus') + 'Növbə Əlavə Et</button>' +
+          '</div>' +
+          '<div class="table-wrap"><table class="dynamic-shifts-table"><thead><tr><th>Növbə Adı</th><th>Başlama</th><th>Bitmə</th><th>Fasilə (dəq)</th><th>Gecə Saatı</th><th></th></tr></thead>' +
+          '<tbody id="shifts-tbody">' + renderShiftRows(shifts) + '</tbody></table></div>' +
+        '</div>' +
+        '</form>',
+      footer: '<button class="btn ghost" type="button" data-act="modal-close">İmtina</button>' +
+        '<button class="btn primary" type="submit" form="work-schedule-form">' + icon('check') + 'Yadda Saxla</button>'
+    });
+
+    var tbody = $('#shifts-tbody');
+    $('#btn-add-shift').addEventListener('click', function () {
+      var rowCount = tbody.querySelectorAll('tr').length;
+      var tr = document.createElement('tr');
+      tr.setAttribute('data-shift-row', rowCount);
+      tr.innerHTML = '<td><input type="text" class="shift-inp-name" value="' + (rowCount + 1) + '-ci Növbə" placeholder="Növbə adı" required></td>' +
+        '<td><input type="time" class="shift-inp-start" value="08:00" required></td>' +
+        '<td><input type="time" class="shift-inp-end" value="16:00" required></td>' +
+        '<td><input type="number" class="shift-inp-break" value="60" min="0" max="300" style="width:70px"></td>' +
+        '<td><input type="number" class="shift-inp-night" value="0" min="0" max="24" step="0.5" style="width:70px"></td>' +
+        '<td><button type="button" class="btn sm ghost danger shift-btn-del" title="Sil">×</button></td>';
+      tbody.appendChild(tr);
+    });
+
+    tbody.addEventListener('click', function (e) {
+      if (e.target.closest('.shift-btn-del')) {
+        var row = e.target.closest('tr');
+        if (tbody.querySelectorAll('tr').length > 1) {
+          row.remove();
+        } else {
+          toast('Ən azı 1 növbə olmalıdır', 'error');
+        }
+      }
+    });
+
+    $('#work-schedule-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var form = e.target;
+      var rows = tbody.querySelectorAll('tr');
+      var shiftsData = [];
+      rows.forEach(function (r) {
+        shiftsData.push({
+          name: r.querySelector('.shift-inp-name').value.trim(),
+          start: r.querySelector('.shift-inp-start').value,
+          end: r.querySelector('.shift-inp-end').value,
+          break_minutes: Number(r.querySelector('.shift-inp-break').value) || 0,
+          night_hours: Number(r.querySelector('.shift-inp-night').value) || 0
+        });
+      });
+
+      var payload = {
+        organization_id: Number(form.elements.organization_id.value),
+        name: form.elements.name.value.trim(),
+        schedule_type: form.elements.schedule_type.value,
+        weekly_hours: Number(form.elements.weekly_hours.value),
+        is_default: form.elements.is_default.checked,
+        shift_rules_json: {
+          shifts: shiftsData,
+          rotation_pattern: form.elements.rotation_pattern.value.trim(),
+          night_bonus_pct: 0.20
+        }
+      };
+
+      try {
+        if (schedule) {
+          await api('/work-schedules/' + schedule.id, { method: 'PUT', body: payload });
+          toast('İş qrafiki yeniləndi', 'success');
+        } else {
+          await api('/work-schedules', { method: 'POST', body: payload });
+          toast('Yeni iş qrafiki yaradıldı', 'success');
+        }
+        closeModal();
+        await renderWorkSchedules();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
+  }
+
+  async function openSchedulePresetsModal() {
+    try {
+      var presets = await api('/work-schedules/presets');
+      var cardsHtml = presets.map(function (p) {
+        var shiftsHtml = (p.shift_rules_json.shifts || []).map(function (s) {
+          return '<div style="font-size:11px;color:var(--text-soft)">• ' + esc(s.name) + ': <strong class="mono">' + esc(s.start) + ' - ' + esc(s.end) + '</strong>' + (s.night_hours ? ' (Gecə: ' + s.night_hours + 's)' : '') + '</div>';
+        }).join('');
+
+        return '<div class="preset-card">' +
+          '<div>' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
+              '<h4>' + esc(p.name) + '</h4>' +
+              '<span class="badge info font-xs">' + p.schedule_type + '</span>' +
+            '</div>' +
+            '<p style="margin-bottom:8px">' + esc(p.description) + '</p>' +
+            '<div style="font-size:11.5px;color:var(--muted);margin-bottom:6px"><strong>Rotasiya:</strong> ' + esc(p.rotation_pattern) + '</div>' +
+            '<div style="background:var(--surface-2);border-radius:8px;padding:8px;margin-top:6px">' + shiftsHtml + '</div>' +
+          '</div>' +
+          '<div style="margin-top:12px">' +
+            '<button class="btn sm primary w-full btn-apply-preset" type="button" data-preset="' + esc(p.key) + '">' + icon('plus') + 'Bu Şablonu Tətbiq Et</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      openModal({
+        title: 'Standart İş Qrafiki Şablonları',
+        subtitle: 'AR Əmək Məcəlləsinə tam uyğunlaşdırılmış 2-növbəli, 3-növbəli, 12 və 24 saatlıq şablonlar',
+        size: 'large',
+        body: '<div class="preset-grid">' + cardsHtml + '</div>',
+        footer: '<button class="btn ghost" type="button" data-act="modal-close">Bağla</button>'
+      });
+
+      document.querySelectorAll('.btn-apply-preset').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          var pkey = btn.getAttribute('data-preset');
+          var selectedPreset = presets.find(function (p) { return p.key === pkey; });
+          if (!selectedPreset) return;
+
+          try {
+            var orgId = state.user && state.user.organization_id ? state.user.organization_id : 1;
+            var payload = {
+              organization_id: orgId,
+              name: selectedPreset.name,
+              schedule_type: selectedPreset.schedule_type,
+              weekly_hours: selectedPreset.weekly_hours,
+              is_default: false,
+              shift_rules_json: selectedPreset.shift_rules_json
+            };
+            await api('/work-schedules', { method: 'POST', body: payload });
+            closeModal();
+            toast('Şablon əsasında iş qrafiki yaradıldı: ' + selectedPreset.name, 'success');
+            await renderWorkSchedules();
+          } catch (err) {
+            toast(err.message, 'error');
+          }
+        });
+      });
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function openScheduleAssignmentModal(scheduleId, scheduleName) {
+    await ensureLookups(['employees']);
+    var allEmployees = state.lookups.employees || [];
+
+    async function loadAndRender() {
+      var assignments = await api('/work-schedules/' + scheduleId + '/assignments');
+      var assignedEmpIds = assignments.map(function (a) { return a.employee_id; });
+
+      var rows = assignments.map(function (a) {
+        return '<tr>' +
+          '<td><strong>' + esc(a.full_name) + '</strong><div class="sub">FIN: ' + esc(a.pin_code) + '</div></td>' +
+          '<td class="mono">' + esc(a.effective_from) + '</td>' +
+          '<td class="mono">' + esc(a.effective_to || 'Davam edir') + '</td>' +
+          '<td><button type="button" class="btn sm ghost danger btn-remove-assign" data-assign-id="' + a.id + '">Sil</button></td>' +
+          '</tr>';
+      }).join('');
+
+      var unassignedEmps = allEmployees.filter(function (e) {
+        return assignedEmpIds.indexOf(e.id) === -1;
+      });
+
+      var empOptions = unassignedEmps.map(function (e) {
+        return '<option value="' + e.id + '">' + esc([e.last_name, e.first_name].filter(Boolean).join(' ')) + ' (FIN: ' + esc(e.pin_code || '') + ')</option>';
+      }).join('');
+
+      var modalHtml =
+        '<div style="margin-bottom:16px">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
+            '<strong>Cari Təyin Edilmiş İşçilər (' + assignments.length + ')</strong>' +
+          '</div>' +
+          '<div class="table-wrap"><table class="data"><thead><tr><th>İşçi</th><th>Başlama Tarixi</th><th>Bitmə Tarixi</th><th></th></tr></thead>' +
+          '<tbody>' + (rows || '<tr><td colspan="4" class="text-center">Bu qrafikə hələ heç bir işçi təyin edilməyib</td></tr>') + '</tbody></table></div>' +
+        '</div>' +
+        '<form id="assign-employee-form" class="card card-pad" style="background:var(--surface-2);border:1px solid var(--line)">' +
+          '<h4 style="margin:0 0 10px;font-size:13px">Qrafikə Yeni İşçi Təyin Et</h4>' +
+          '<div class="form-grid">' +
+            '<label class="field span-2"><span>İşçi Seçin <span class="req">*</span></span><select name="employee_id" required>' +
+              '<option value="">— İşçi seçin —</option>' + empOptions +
+            '</select></label>' +
+            '<label class="field"><span>Qüvvəyə Minmə Tarixi <span class="req">*</span></span><input type="date" name="effective_from" value="' + localToday() + '" required></label>' +
+            '<label class="field"><span>Bitmə Tarixi (istəyə görə)</span><input type="date" name="effective_to"></label>' +
+          '</div>' +
+          '<div style="margin-top:12px;display:flex;justify-content:flex-end">' +
+            '<button type="submit" class="btn primary">' + icon('check') + 'Qrafikə Təyin Et</button>' +
+          '</div>' +
+        '</form>';
+
+      openModal({
+        title: 'İşçilərin Qrafikə Təyini',
+        subtitle: esc(scheduleName),
+        size: 'large',
+        body: modalHtml,
+        footer: '<button class="btn ghost" type="button" data-act="modal-close">Bağla</button>'
+      });
+
+      document.querySelectorAll('.btn-remove-assign').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          var assignId = btn.getAttribute('data-assign-id');
+          if (!window.confirm('İşçinin bu qrafikdən təyinatı silinsin?')) return;
+          try {
+            await api('/work-schedules/' + scheduleId + '/assignments/' + assignId, { method: 'DELETE' });
+            toast('Təyinat silindi', 'success');
+            await loadAndRender();
+            await renderWorkSchedules();
+          } catch (err) {
+            toast(err.message, 'error');
+          }
+        });
+      });
+
+      var form = $('#assign-employee-form');
+      if (form) {
+        form.addEventListener('submit', async function (e) {
+          e.preventDefault();
+          var empId = Number(form.elements.employee_id.value);
+          if (!empId) {
+            toast('Zəhmət olmasa işçi seçin', 'error');
+            return;
+          }
+          var payload = {
+            employee_ids: [empId],
+            effective_from: form.elements.effective_from.value,
+            effective_to: form.elements.effective_to.value || null
+          };
+          try {
+            await api('/work-schedules/' + scheduleId + '/assign', { method: 'POST', body: payload });
+            toast('İşçi qrafikə uğurla təyin edildi', 'success');
+            await loadAndRender();
+            await renderWorkSchedules();
+          } catch (err) {
+            toast(err.message, 'error');
+          }
+        });
+      }
+    }
+
+    try {
+      await loadAndRender();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
   async function openTimesheetGenerate() {
     await ensureLookups(['organizations']);
     var orgs = state.lookups.organizations || [];
@@ -2559,6 +2975,149 @@
       (rowsData.length ? '<div class="table-wrap"><table class="data"><thead><tr><th>Vaxt</th><th>İstifadəçi</th><th>Əməliyyat</th><th>Cədvəl</th><th>Qeyd</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
         : emptyState('Jurnal boşdur', 'Hələ heç bir əməliyyat qeydə alınmayıb.')) +
       '</div>';
+  }
+
+  async function renderSystemSettings() {
+    setHeader('Sistem və Demo İdarəsi', 'Məlumat bazası, demo rejimi və real istehsalata keçid sazlamaları');
+    if (!roleIn(['SUPERADMIN'])) {
+      $('#view').innerHTML = errorCard('Bu bölmə yalnız sistem administratoru (SUPERADMIN) üçün əlçatandır.');
+      return;
+    }
+    $('#view').innerHTML = loadingHTML('Sistem sazlamaları yüklənir...');
+
+    try {
+      await loadSystemInfo();
+      var demoEnabled = state.systemInfo && state.systemInfo.demo_enabled;
+
+      var statusNotice = demoEnabled
+        ? '<div class="alert warn mb-16"><div style="font-size:13px"><strong>⚡ Demo Rejimi Aktivdir:</strong> Giriş ekranında demo hesab düymələri (Superadmin, HR, Mühasib və s.) aktivdir və sistem sınaq məlumatları ilə işləyir.</div></div>'
+        : '<div class="alert info mb-16"><div style="font-size:13px"><strong>✓ Real İstehsalat Rejimi:</strong> Demo düymələr söndürülüb. İstifadəçilər yalnız öz real e-poçt və şifrələri ilə daxil ola bilər.</div></div>';
+
+      $('#view').innerHTML =
+        statusNotice +
+        '<div class="grid grid-2 gap-16">' +
+          '<div class="card card-pad">' +
+            '<header class="card-head" style="margin-bottom:14px"><h3>Giriş Ekranı və Demo Rejimi</h3></header>' +
+            '<p style="font-size:13px;color:var(--text-soft);margin-bottom:16px;line-height:1.5">' +
+              'Giriş ekranında nümayiş olunan sürətli giriş çiplərini (Superadmin, HR Direktoru, Mühasib və s.) idarə edin. ' +
+              'Sistem real istifadəyə verildikdə bu düymələri gizlədərək giriş ekranını tam peşəkar rejimə keçirə bilərsiniz.' +
+            '</p>' +
+            '<div style="background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">' +
+              '<div><strong>Demo Giriş Düymələri</strong><div class="sub">Giriş səhifəsindəki rollar qutusu</div></div>' +
+              '<span class="badge ' + (demoEnabled ? 'success' : 'neutral') + '">' + (demoEnabled ? 'GÖSTƏRİLİR' : 'GİZLƏDİLİB') + '</span>' +
+            '</div>' +
+            '<button class="btn ' + (demoEnabled ? 'ghost danger' : 'primary') + '" type="button" data-act="system-toggle-demo">' +
+              (demoEnabled ? 'Giriş ekranında demo hesabları gizlət' : 'Giriş ekranında demo hesabları aktiv et') +
+            '</button>' +
+          '</div>' +
+          '<div class="danger-zone-card">' +
+            '<h3>' + icon('trash') + 'Demo Verilənləri Təmizləmə (Real Rejimə Keçid)</h3>' +
+            '<p style="font-size:12.5px;color:#7f1d1d;line-height:1.5;margin-bottom:14px">' +
+              'Bu əməliyyat sistemdəki bütün sınaq və demo qeydlərini (işçilər, əmək müqavilələri, kadr əmrləri, tabel saatları, turniket loqları və əməkhaqqı cədvəlləri) tam təmizləyir.<br><br>' +
+              '<strong>Saxlanılacaq əsas məlumatlar:</strong><br>' +
+              '• Şirkət rekvizitləri və strukturu (departamentlər, vəzifələr)<br>' +
+              '• İstehsalat təqvimi (AR rəsmi bayram və iş günləri)<br>' +
+              '• Vergi və sosial sığorta dərəcələri soraqçası<br>' +
+              '• Məzuniyyət və əməkhaqqı komponentləri<br>' +
+              '• Sistem Administratoru hesabı (Cari istifadəçiniz)<br><br>' +
+              'Təmizləmədən sonra sistem təmiz real iş rejiminə keçəcək və demo düymələr avtomatik yığışdırılacaq.' +
+            '</p>' +
+            '<button class="btn danger" type="button" data-act="system-wipe-demo">' + icon('trash') + 'Demo Məlumatları Tam Sil və Real Rejimə Keç</button>' +
+          '</div>' +
+        '</div>';
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function toggleDemoModeAction() {
+    var currentlyEnabled = state.systemInfo && state.systemInfo.demo_enabled;
+    var newStatus = !currentlyEnabled;
+    try {
+      await api('/system/toggle-demo-mode', {
+        method: 'POST',
+        body: { enabled: newStatus }
+      });
+      await loadSystemInfo();
+      toast(newStatus ? 'Demo rejimi aktiv edildi' : 'Demo rejimi söndürüldü (Giriş ekranında gizlədildi)', 'success');
+      await renderSystemSettings();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function confirmAndWipeDemoData() {
+    openModal({
+      title: '⚠️ Demo Məlumatları Təmizləmə',
+      subtitle: 'Real istehsalat rejiminə keçid təsdiqi',
+      body: '<div class="alert danger mb-16">' +
+        '<strong>Diqqət! Bu əməliyyat geri qaytarıla bilməz!</strong><br>' +
+        'Bütün sınaq işçiləri, əmək müqavilələri, kadr əmrləri, tabel qeydləri, turniket loqları və əməkhaqqı hesablamaları verilənlər bazasından həmişəlik silinəcək.' +
+      '</div>' +
+      '<p style="font-size:13px;line-height:1.5;margin-bottom:14px">' +
+        'Təmizləmədən sonra şirkət strukturu, AR istehsalat təqvimi və Administrator hesabınız saxlanılacaq. ' +
+        'Giriş ekranındakı demo düymələr söndürüləcək və sistem təmiz real iş üçün hazır olacaq.' +
+      '</p>' +
+      '<label class="field check" style="padding-top:8px">' +
+        '<input type="checkbox" id="chk-confirm-wipe"><span>Bəli, bütün demo məlumatların silinməsini və real rejimə keçidi təsdiq edirəm</span>' +
+      '</label>',
+      footer: '<button class="btn ghost" type="button" data-act="modal-close">İmtina</button>' +
+        '<button class="btn danger" type="button" id="btn-execute-wipe" disabled>' + icon('trash') + 'Bazasını Təmizlə və Real Rejimə Keç</button>'
+    });
+
+    var chk = $('#chk-confirm-wipe');
+    var btn = $('#btn-execute-wipe');
+    if (chk && btn) {
+      chk.addEventListener('change', function () {
+        btn.disabled = !chk.checked;
+      });
+      btn.addEventListener('click', async function () {
+        btn.disabled = true;
+        btn.textContent = 'Təmizlənir...';
+        try {
+          var result = await api('/system/wipe-demo-data', { method: 'POST' });
+          closeModal();
+          toast(result.message || 'Demo məlumatları tam təmizləndi! Sistem real rejimə keçdi.', 'success');
+          await loadSystemInfo();
+          await loadMeta();
+          location.hash = '#/s/dashboard';
+        } catch (err) {
+          toast(err.message, 'error');
+          btn.disabled = false;
+          btn.textContent = 'Bazasını Təmizlə və Real Rejimə Keç';
+        }
+      });
+    }
+  }
+
+  async function openUserProfileDialog() {
+    var user = state.user || {};
+    var isSuper = user.role === 'SUPERADMIN';
+    openModal({
+      title: 'İstifadəçi Profili',
+      subtitle: esc(user.email || ''),
+      body: '<div class="profile-head card card-pad" style="margin-bottom:14px">' +
+        '<div class="avatar" style="width:48px;height:48px;font-size:18px">' + esc(initials(user.full_name || user.email)) + '</div>' +
+        '<div style="flex:1">' +
+          '<h3 style="margin:0 0 4px">' + esc(user.full_name || 'İstifadəçi') + '</h3>' +
+          '<div style="display:flex;gap:6px">' +
+            badge(user.role || 'USER', 'info') +
+            (isSuper ? '<span class="badge success">Tam İnzibatçı</span>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="kv">' +
+        '<div><span>E-poçt</span><strong>' + esc(user.email || '—') + '</strong></div>' +
+        '<div><span>Rol</span><strong>' + esc(humanize(user.role)) + '</strong></div>' +
+        '<div><span>Təşkilat</span><strong>' + esc(refLabel('organizations', user.organization_id)) + '</strong></div>' +
+        '<div><span>Status</span><strong>' + (user.is_active ? 'Aktiv' : 'Deaktiv') + '</strong></div>' +
+      '</div>' +
+      (isSuper ? '<div style="margin-top:16px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between">' +
+        '<div><strong>Sistem və Demo İdarəsi</strong><div class="sub">Demo rejimi və verilənlər bazası sazlamaları</div></div>' +
+        '<a class="btn sm primary" href="#/s/system-settings" onclick="closeModal()">' + icon('settings') + 'İdarə Et</a>' +
+      '</div>' : ''),
+      footer: '<button class="btn ghost" type="button" data-act="modal-close">Bağla</button>'
+    });
   }
 
   function ensureCompliancePeriod() {
@@ -3596,6 +4155,34 @@
           return;
         case 'compliance-military-export':
           await downloadFile('/compliance/military-report' + (state.user && state.user.organization_id ? '?organization_id=' + state.user.organization_id : ''), 'herbi-ucot-t2.csv');
+          return;
+        case 'work-schedule-new':
+          await openWorkScheduleModal(null);
+          return;
+        case 'work-schedule-edit':
+          await openWorkScheduleModal(Number(id));
+          return;
+        case 'work-schedule-delete': {
+          if (!window.confirm('Bu iş qrafiki silinsin?')) return;
+          await api('/work-schedules/' + id, { method: 'DELETE' });
+          toast('İş qrafiki silindi', 'success');
+          await renderWorkSchedules();
+          return;
+        }
+        case 'work-schedule-preset':
+          await openSchedulePresetsModal();
+          return;
+        case 'work-schedule-assign':
+          await openScheduleAssignmentModal(Number(id), trigger.getAttribute('data-name'));
+          return;
+        case 'system-toggle-demo':
+          await toggleDemoModeAction();
+          return;
+        case 'system-wipe-demo':
+          await confirmAndWipeDemoData();
+          return;
+        case 'user-profile-dialog':
+          await openUserProfileDialog();
           return;
         default:
           return;

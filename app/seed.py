@@ -163,32 +163,40 @@ def _ensure_calendar(db: Session, years: set[int]) -> None:
 
 
 def seed_demo(db: Session) -> None:
-    if db.scalar(select(func.count(Organization.id))) > 0:
+    if db.scalar(select(func.count(Employee.id))) > 0:
         return
 
     today = date.today()
-    organization = Organization(
-        name="Nümunə Holdinq MMC",
-        short_name="Nümunə",
-        voen="1234567890",
-        sun_code="SUN-001",
-        legal_address="Bakı şəhəri, Nizami küçəsi 100",
-        actual_address="Bakı şəhəri, Nizami küçəsi 100",
-        bank_name="Kapital Bank",
-        bank_iban="AZ21NABZ00000000137010001944",
-        bank_swift="AIIBAZ2X",
-        phone="+994 12 555 00 00",
-        email="info@numune.az",
-        sector_type="NON_OIL_PRIVATE",
-        settings_json={
-            "overtime_multiplier": 2.0,
-            "night_bonus_pct": 0.20,
-            "holiday_multiplier": 2.0,
-        },
-        is_active=True,
-    )
-    db.add(organization)
-    db.flush()
+    organization = db.scalar(select(Organization).order_by(Organization.id))
+    if not organization:
+        organization = Organization(
+            name="Nümunə Holdinq MMC",
+            short_name="Nümunə",
+            voen="1234567890",
+            sun_code="SUN-001",
+            legal_address="Bakı şəhəri, Nizami küçəsi 100",
+            actual_address="Bakı şəhəri, Nizami küçəsi 100",
+            bank_name="Kapital Bank",
+            bank_iban="AZ21NABZ00000000137010001944",
+            bank_swift="AIIBAZ2X",
+            phone="+994 12 555 00 00",
+            email="info@numune.az",
+            sector_type="NON_OIL_PRIVATE",
+            settings_json={
+                "overtime_multiplier": 2.0,
+                "night_bonus_pct": 0.20,
+                "holiday_multiplier": 2.0,
+                "demo_enabled": True,
+            },
+            is_active=True,
+        )
+        db.add(organization)
+        db.flush()
+    else:
+        settings_dict = dict(organization.settings_json or {})
+        settings_dict["demo_enabled"] = True
+        organization.settings_json = settings_dict
+        db.flush()
 
     departments = {}
     for code, name, cost_center in (
@@ -197,16 +205,18 @@ def seed_demo(db: Session) -> None:
         ("FIN", "Maliyyə və Mühasibatlıq", "CC-300"),
         ("SALES", "Satış və Marketinq", "CC-400"),
     ):
-        department = Department(
-            organization_id=organization.id,
-            code=code,
-            name=name,
-            cost_center_code=cost_center,
-            path=name,
-        )
-        db.add(department)
-        db.flush()
-        departments[code] = department
+        dept = db.scalar(select(Department).where(Department.organization_id == organization.id, Department.code == code))
+        if not dept:
+            dept = Department(
+                organization_id=organization.id,
+                code=code,
+                name=name,
+                cost_center_code=cost_center,
+                path=name,
+            )
+            db.add(dept)
+            db.flush()
+        departments[code] = dept
 
     positions = {}
     for code, title, grade, min_salary, max_salary, leave_days in (
@@ -216,18 +226,20 @@ def seed_demo(db: Session) -> None:
         ("ACC", "Baş Mühasib", 4, 1500, 2800, 21),
         ("SALES", "Satış Meneceri", 4, 1400, 2600, 21),
     ):
-        position = Position(
-            organization_id=organization.id,
-            title=title,
-            occupation_code=f"AZ-{code}",
-            grade_level=grade,
-            min_salary=min_salary,
-            max_salary=max_salary,
-            annual_leave_days=leave_days,
-        )
-        db.add(position)
-        db.flush()
-        positions[code] = position
+        pos = db.scalar(select(Position).where(Position.organization_id == organization.id, Position.occupation_code == f"AZ-{code}"))
+        if not pos:
+            pos = Position(
+                organization_id=organization.id,
+                title=title,
+                occupation_code=f"AZ-{code}",
+                grade_level=grade,
+                min_salary=min_salary,
+                max_salary=max_salary,
+                annual_leave_days=leave_days,
+            )
+            db.add(pos)
+            db.flush()
+        positions[code] = pos
 
     staffing = {}
     for key, department, position, base_salary, harmful in (
@@ -238,18 +250,26 @@ def seed_demo(db: Session) -> None:
         ("ACC", departments["FIN"], positions["ACC"], 2100, 0),
         ("SALES", departments["SALES"], positions["SALES"], 1900, 0),
     ):
-        unit = StaffingTable(
-            organization_id=organization.id,
-            department_id=department.id,
-            position_id=position.id,
-            approved_headcount=1,
-            base_salary=base_salary,
-            harmful_work_bonus_pct=harmful,
-            effective_from=date(2024, 1, 1),
-            is_active=True,
+        unit = db.scalar(
+            select(StaffingTable).where(
+                StaffingTable.organization_id == organization.id,
+                StaffingTable.department_id == department.id,
+                StaffingTable.position_id == position.id,
+            )
         )
-        db.add(unit)
-        db.flush()
+        if not unit:
+            unit = StaffingTable(
+                organization_id=organization.id,
+                department_id=department.id,
+                position_id=position.id,
+                approved_headcount=1,
+                base_salary=base_salary,
+                harmful_work_bonus_pct=harmful,
+                effective_from=date(2024, 1, 1),
+                is_active=True,
+            )
+            db.add(unit)
+            db.flush()
         staffing[key] = unit
 
     employee_specs = [
@@ -337,16 +357,18 @@ def seed_demo(db: Session) -> None:
     departments["FIN"].head_employee_id = employees[2].id
     departments["SALES"].head_employee_id = employees[3].id
 
-    default_schedule = WorkSchedule(
-        organization_id=organization.id,
-        name="Standart 5 günlük, 40 saat",
-        schedule_type="STANDARD_5",
-        weekly_hours=40,
-        shift_rules_json={"work_days": [1, 2, 3, 4, 5], "start": "09:00", "end": "18:00", "lunch_break_hours": 1},
-        is_default=True,
-    )
-    db.add(default_schedule)
-    db.flush()
+    default_schedule = db.scalar(select(WorkSchedule).where(WorkSchedule.organization_id == organization.id, WorkSchedule.is_default.is_(True)))
+    if not default_schedule:
+        default_schedule = WorkSchedule(
+            organization_id=organization.id,
+            name="Standart 5 günlük, 40 saat",
+            schedule_type="STANDARD_5",
+            weekly_hours=40,
+            shift_rules_json={"work_days": [1, 2, 3, 4, 5], "start": "09:00", "end": "18:00", "lunch_break_hours": 1},
+            is_default=True,
+        )
+        db.add(default_schedule)
+        db.flush()
     for employee in employees:
         db.add(
             EmployeeSchedule(

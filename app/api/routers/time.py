@@ -571,6 +571,262 @@ def attendance_today_summary(
         "employees": emp_list,
     }
 
+@router.get("/work-schedules/presets", tags=["M05 · İş Qrafikləri"])
+def list_schedule_presets(user: User = Depends(require_roles(*HR_READ))):
+    return [
+        {
+            "key": "SHIFT_3_STANDARD",
+            "name": "3 Növbəli Fasiləsiz İstehsalat (8 saatlıq)",
+            "schedule_type": "SHIFT_3",
+            "weekly_hours": 40.0,
+            "description": "24 saatlıq fasiləsiz iş rejimi üçün 3 növbəli qrafik (AR ƏM m.91-99)",
+            "rotation_pattern": "Həftəlik rotasiya (Səhər -> Axşam -> Gecə -> İstirahət)",
+            "shift_rules_json": {
+                "shifts": [
+                    {"name": "1-ci Növbə (Səhər)", "start": "08:00", "end": "16:00", "break_minutes": 60, "night_hours": 0},
+                    {"name": "2-ci Növbə (Axşam)", "start": "16:00", "end": "00:00", "break_minutes": 60, "night_hours": 2},
+                    {"name": "3-cü Növbə (Gecə)", "start": "00:00", "end": "08:00", "break_minutes": 60, "night_hours": 6},
+                ],
+                "rotation_days": 7,
+                "night_bonus_pct": 0.20,
+                "break_minutes": 60,
+            },
+        },
+        {
+            "key": "SHIFT_12_STANDARD",
+            "name": "12 Saatlıq Növbəli Xidmət (Gündüz / Gecə)",
+            "schedule_type": "SHIFT_12",
+            "weekly_hours": 40.0,
+            "description": "Gündüz və gecə 12 saatlıq növbələr (mühafizə, tibb, texniki xidmət)",
+            "rotation_pattern": "1 gün gündüz, 1 gün gecə, 2 gün istirahət (4 günlük tsikl)",
+            "shift_rules_json": {
+                "shifts": [
+                    {"name": "Gündüz növbəsi", "start": "08:00", "end": "20:00", "break_minutes": 60, "night_hours": 0},
+                    {"name": "Gecə növbəsi", "start": "20:00", "end": "08:00", "break_minutes": 60, "night_hours": 8},
+                ],
+                "rotation_days": 4,
+                "night_bonus_pct": 0.20,
+                "break_minutes": 60,
+            },
+        },
+        {
+            "key": "SHIFT_24_STANDARD",
+            "name": "24 Saatlıq Sutkalıq Növbə (1 gün iş / 3 gün ev)",
+            "schedule_type": "SHIFT_24",
+            "weekly_hours": 40.0,
+            "description": "Sutkalıq növbətçilik və mühafizə qrafiki (AR ƏM m.98)",
+            "rotation_pattern": "1 sutka (24 saat) iş, 3 sutka (72 saat) istirahət",
+            "shift_rules_json": {
+                "shifts": [
+                    {"name": "Sutkalıq növbə", "start": "08:00", "end": "08:00", "break_minutes": 120, "night_hours": 8},
+                ],
+                "rotation_days": 4,
+                "night_bonus_pct": 0.20,
+                "break_minutes": 120,
+            },
+        },
+        {
+            "key": "SHIFT_2_STANDARD",
+            "name": "2 Növbəli İstehsalat / Satış (Səhər və Axşam)",
+            "schedule_type": "SHIFT_2",
+            "weekly_hours": 40.0,
+            "description": "2 növbəli iş qrafiki (08:00-16:30 və 16:30-01:00)",
+            "rotation_pattern": "Həftəlik rotasiya (5 gün iş, 2 gün istirahət)",
+            "shift_rules_json": {
+                "shifts": [
+                    {"name": "1-ci Növbə (Səhər)", "start": "08:00", "end": "16:30", "break_minutes": 30, "night_hours": 0},
+                    {"name": "2-ci Növbə (Axşam)", "start": "16:30", "end": "01:00", "break_minutes": 30, "night_hours": 3},
+                ],
+                "rotation_days": 7,
+                "night_bonus_pct": 0.20,
+                "break_minutes": 30,
+            },
+        },
+        {
+            "key": "STANDARD_5_DAYS",
+            "name": "Standart 5 Günlük İş Həftəsi (40 saat)",
+            "schedule_type": "STANDARD_5",
+            "weekly_hours": 40.0,
+            "description": "Klassik 5 günlük iş həftəsi (Bazar ertəsi - Cümə, 09:00 - 18:00)",
+            "rotation_pattern": "Şənbə və Bazar istirahət",
+            "shift_rules_json": {
+                "work_days": [1, 2, 3, 4, 5],
+                "start": "09:00",
+                "end": "18:00",
+                "lunch_break_hours": 1,
+                "shifts": [
+                    {"name": "Standart iş saatı", "start": "09:00", "end": "18:00", "break_minutes": 60, "night_hours": 0},
+                ],
+            },
+        },
+        {
+            "key": "STANDARD_6_DAYS",
+            "name": "Standart 6 Günlük İş Həftəsi (40 saat)",
+            "schedule_type": "STANDARD_6",
+            "weekly_hours": 40.0,
+            "description": "6 günlük iş həftəsi (Həftəiçi 7 saat, Şənbə 5 saat, Bazar istirahət)",
+            "rotation_pattern": "Bazar günü istirahət",
+            "shift_rules_json": {
+                "work_days": [1, 2, 3, 4, 5, 6],
+                "shifts": [
+                    {"name": "Həftəiçi (I-V)", "start": "09:00", "end": "16:30", "break_minutes": 30, "night_hours": 0},
+                    {"name": "Şənbə (VI)", "start": "09:00", "end": "14:30", "break_minutes": 30, "night_hours": 0},
+                ],
+            },
+        },
+    ]
+
+
+@router.get("/work-schedules/overview", tags=["M05 · İş Qrafikləri"])
+def list_schedules_overview(
+    organization_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*HR_READ)),
+):
+    org_id = organization_id or user.organization_id
+    if not org_id:
+        raise HTTPException(status_code=400, detail="organization_id tələb olunur")
+    _check_org(user, org_id)
+
+    schedules = list(
+        db.scalars(
+            select(WorkSchedule)
+            .where(WorkSchedule.organization_id == org_id)
+            .order_by(WorkSchedule.is_default.desc(), WorkSchedule.id.asc())
+        )
+    )
+
+    assignment_counts = dict(
+        db.execute(
+            select(EmployeeSchedule.work_schedule_id, func.count(EmployeeSchedule.id))
+            .group_by(EmployeeSchedule.work_schedule_id)
+        ).all()
+    )
+
+    result = []
+    for s in schedules:
+        rules = s.shift_rules_json or {}
+        shifts = rules.get("shifts", [])
+        result.append({
+            "id": s.id,
+            "organization_id": s.organization_id,
+            "name": s.name,
+            "schedule_type": s.schedule_type,
+            "weekly_hours": float(s.weekly_hours),
+            "is_default": s.is_default,
+            "shift_rules_json": rules,
+            "shifts_count": len(shifts),
+            "shifts": shifts,
+            "assigned_count": assignment_counts.get(s.id, 0),
+            "rotation_pattern": rules.get("rotation_pattern", ""),
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        })
+    return result
+
+
+@router.get("/work-schedules/{schedule_id}/assignments", tags=["M05 · İş Qrafikləri"])
+def get_schedule_assignments(
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*HR_READ)),
+):
+    schedule = db.get(WorkSchedule, schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Qrafik tapılmadı")
+    _check_org(user, schedule.organization_id)
+
+    rows = db.execute(
+        select(EmployeeSchedule, Employee)
+        .join(Employee, Employee.id == EmployeeSchedule.employee_id)
+        .where(EmployeeSchedule.work_schedule_id == schedule_id)
+        .order_by(Employee.last_name, Employee.first_name)
+    ).all()
+
+    result = []
+    for es, emp in rows:
+        result.append({
+            "id": es.id,
+            "employee_id": emp.id,
+            "full_name": f"{emp.last_name} {emp.first_name} {emp.father_name or ''}".strip(),
+            "pin_code": emp.pin_code,
+            "effective_from": str(es.effective_from),
+            "effective_to": str(es.effective_to) if es.effective_to else None,
+        })
+    return result
+
+
+@router.post("/work-schedules/{schedule_id}/assign", tags=["M05 · İş Qrafikləri"])
+def assign_employees_to_schedule(
+    schedule_id: int,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*HR_WRITE)),
+):
+    schedule = db.get(WorkSchedule, schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Qrafik tapılmadı")
+    _check_org(user, schedule.organization_id)
+
+    employee_ids = payload.get("employee_ids", [])
+    if isinstance(payload.get("employee_id"), int):
+        employee_ids.append(payload["employee_id"])
+    employee_ids = list(set(employee_ids))
+
+    if not employee_ids:
+        raise HTTPException(status_code=400, detail="Ən azı 1 işçi seçilməlidir")
+
+    effective_from_str = payload.get("effective_from") or str(date.today())
+    effective_from = date.fromisoformat(effective_from_str)
+    effective_to = date.fromisoformat(payload["effective_to"]) if payload.get("effective_to") else None
+
+    assigned_count = 0
+    for emp_id in employee_ids:
+        emp = db.get(Employee, emp_id)
+        if not emp:
+            continue
+        db.query(EmployeeSchedule).filter(
+            EmployeeSchedule.employee_id == emp_id,
+            EmployeeSchedule.effective_to.is_(None)
+        ).update({"effective_to": effective_from}, synchronize_session=False)
+
+        new_assignment = EmployeeSchedule(
+            employee_id=emp_id,
+            work_schedule_id=schedule_id,
+            effective_from=effective_from,
+            effective_to=effective_to,
+        )
+        db.add(new_assignment)
+        assigned_count += 1
+
+    db.commit()
+    return {
+        "status": "ok",
+        "schedule_id": schedule_id,
+        "assigned_count": assigned_count,
+        "message": f"{assigned_count} işçi qrafikə uğurla təyin edildi"
+    }
+
+
+@router.delete("/work-schedules/{schedule_id}/assignments/{assignment_id}", tags=["M05 · İş Qrafikləri"])
+def remove_schedule_assignment(
+    schedule_id: int,
+    assignment_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*HR_WRITE)),
+):
+    schedule = db.get(WorkSchedule, schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Qrafik tapılmadı")
+    _check_org(user, schedule.organization_id)
+
+    assignment = db.get(EmployeeSchedule, assignment_id)
+    if not assignment or assignment.work_schedule_id != schedule_id:
+        raise HTTPException(status_code=404, detail="Təyinat tapılmadı")
+
+    db.delete(assignment)
+    db.commit()
+    return {"status": "ok", "message": "İşçinin qrafik təyinatı silindi"}
+
 
 router.include_router(
     build_crud_router(

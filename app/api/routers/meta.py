@@ -465,6 +465,8 @@ SCREENS = [
     {"key": "leave-requests", "title": "Məzuniyyət sorğuları", "module": "M06", "icon": "palmtree", "roles": _HR_READ, "manage_roles": _APPROVAL},
     {"key": "sick-leaves", "title": "Xəstəlik vərəqələri", "module": "M06", "icon": "health", "roles": _HR_READ, "manage_roles": _HR_WRITE},
     {"key": "timesheets", "title": "Tabel (T-13)", "module": "M05", "icon": "clock", "roles": _HR_READ, "manage_roles": _HR_WRITE},
+    {"key": "attendance", "title": "Turniket və Davamiyyət", "module": "M05", "icon": "log-in", "roles": _HR_READ, "manage_roles": _HR_WRITE},
+    {"key": "work-schedules", "title": "İş qrafikləri (Növbəli)", "module": "M05", "icon": "calendar", "roles": _HR_READ, "manage_roles": _HR_WRITE},
     {"key": "production-calendar", "title": "İstehsalat təqvimi", "module": "M05", "icon": "calendar-grid", "roles": _HR_READ, "manage_roles": _HR_WRITE},
     {"key": "structure", "title": "Təşkilat strukturu", "module": "M01", "icon": "tree", "roles": _HR_READ, "manage_roles": []},
     {"key": "reports", "title": "Müddət xəbərdarlıqları", "module": "M02", "icon": "alert", "roles": _HR_READ, "manage_roles": []},
@@ -475,6 +477,7 @@ SCREENS = [
     {"key": "mss", "title": "MSS · Komandam", "module": "M14", "icon": "users", "roles": _APPROVAL, "manage_roles": []},
     {"key": "users", "title": "İstifadəçilər", "module": "M14", "icon": "shield", "roles": _ADMIN, "manage_roles": _ADMIN},
     {"key": "audit", "title": "Audit jurnalı", "module": "M14", "icon": "list", "roles": _ADMIN, "manage_roles": []},
+    {"key": "system-settings", "title": "Sistem və Demo İdarəsi", "module": "M14", "icon": "settings", "roles": _ADMIN, "manage_roles": _ADMIN},
     {"key": "ess", "title": "ESS · Şəxsi kabinet", "module": "M14", "icon": "user", "roles": _ALL, "manage_roles": _ALL},
 ]
 

@@ -2,14 +2,19 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.exc import DataError, IntegrityError, StatementError
 from sqlalchemy.orm import Session
+
+from app.api.deps import require_roles
+from app.core.rbac import Role
+from app.models.user import User
+
 
 from app.api.routers import (
     analytics,
@@ -148,26 +153,64 @@ async def statement_error_handler(request: Request, exc: StatementError):
 
 
 @app.get("/api", tags=["System"])
-def api_info():
+def api_info(db: Session = Depends(get_db)):
+    demo_enabled = settings.SEED_DEMO
+    try:
+        from app.models.organization import Organization
+        org = db.scalar(select(Organization).order_by(Organization.id))
+        if org and org.settings_json and "demo_enabled" in org.settings_json:
+            demo_enabled = bool(org.settings_json["demo_enabled"])
+    except Exception:
+        pass
     return {
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "docs": "/docs" if settings.ENABLE_DOCS else None,
         "api": settings.API_V1_PREFIX,
-        "demo_enabled": settings.SEED_DEMO,
+        "demo_enabled": demo_enabled,
         "modules": [f"M{i:02d}" for i in range(1, 15)],
     }
 
 
 @app.get(f"{settings.API_V1_PREFIX}/system/info", tags=["System"])
-def system_info():
+def system_info(db: Session = Depends(get_db)):
+    demo_enabled = settings.SEED_DEMO
+    try:
+        from app.models.organization import Organization
+        org = db.scalar(select(Organization).order_by(Organization.id))
+        if org and org.settings_json and "demo_enabled" in org.settings_json:
+            demo_enabled = bool(org.settings_json["demo_enabled"])
+    except Exception:
+        pass
     return {
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "demo_enabled": settings.SEED_DEMO,
+        "demo_enabled": demo_enabled,
         "docs_enabled": settings.ENABLE_DOCS,
         "api": settings.API_V1_PREFIX,
     }
+
+
+@app.post(f"{settings.API_V1_PREFIX}/system/wipe-demo-data", tags=["System"])
+def api_wipe_demo_data(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.SUPERADMIN)),
+):
+    from app.services.system_service import wipe_demo_data
+    return wipe_demo_data(db, user.id)
+
+
+@app.post(f"{settings.API_V1_PREFIX}/system/toggle-demo-mode", tags=["System"])
+def api_toggle_demo_mode(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(Role.SUPERADMIN)),
+):
+    from app.services.system_service import set_demo_mode
+    enabled = bool(payload.get("enabled", True))
+    set_demo_mode(db, enabled)
+    return {"demo_enabled": enabled, "message": "Demo rejim statusu dəyişdirildi"}
+
 
 
 @app.get("/health", tags=["System"])
